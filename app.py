@@ -33,6 +33,7 @@ def parse_value_for_numeric(val_str_in):
     return None
 
 def extrair_conteudo_docx(uploaded_file):
+    # ... (Função extrair_conteudo_docx permanece a mesma da última versão - sem alterações aqui) ...
     try:
         document = Document(uploaded_file)
         textos = [p.text for p in document.paragraphs if p.text.strip()]
@@ -65,7 +66,6 @@ def extrair_conteudo_docx(uploaded_file):
                         else: df[col] = original_series 
                         try:
                             temp_str_col = df[col].astype(str)
-                            # Removido infer_datetime_format=True pois é depreciado
                             dt_series = pd.to_datetime(temp_str_col, errors='coerce', dayfirst=True) 
                             if dt_series.notna().sum() / max(1, len(dt_series)) > 0.5:
                                 df[col] = dt_series
@@ -79,10 +79,12 @@ def extrair_conteudo_docx(uploaded_file):
                     st.warning(f"Não foi possível processar DataFrame para tabela '{nome_tabela}': {e_df_proc}")
         return "\n\n".join(textos), tabelas_data
     except Exception as e_doc_read: 
-        st.error(f"Erro crítico ao ler arquivo DOCX: {e_doc_read}")
+        st.error(f"Erro crítico ao ler DOCX: {e_doc_read}")
         return "", []
 
+
 def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
+    # ... (Função analisar_documento_com_gemini permanece a mesma da última versão - sem alterações aqui) ...
     api_key = get_gemini_api_key()
     if not api_key: st.warning("Chave API Gemini não configurada."); return []
     try:
@@ -117,29 +119,29 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
         - "kpi": {{"valor": "ValorKPI", "delta": "Mudança", "descricao": "Contexto"}}
         - "tabela_dados": Para TABELA EXISTENTE: {{"id_tabela_original": "ID_Tabela"}}. Para DADOS DO TEXTO: {{"dados": [{{"Coluna1": "ValorA1"}}, ...], "colunas_titulo": ["Título Col1"]}}
         - "lista_swot": {{"forcas": ["F1"], "fraquezas": ["Fr1"], "oportunidades": ["Op1"], "ameacas": ["Am1"]}} (Listas de strings).
-        - Gráficos de TABELA ("barras", "linha", "dispersao"): {{"eixo_x": "NOME_COL_X", "eixo_y": "NOME_COL_Y"}} (Y numérico, use nomes exatos).
-        - Gráficos de PIZZA de TABELA: {{"categorias": "NOME_COL_CAT", "valores": "NOME_COL_VAL_NUM"}} (Valores numéricos, use nomes exatos).
+        - Gráficos de TABELA ("barras", "linha", "dispersao"): {{"eixo_x": "NOME_COL_X", "eixo_y": "NOME_COL_Y"}} (Y numérico).
+        - Gráficos de PIZZA de TABELA: {{"categorias": "NOME_COL_CAT", "valores": "NOME_COL_VAL_NUM"}} (Valores numéricos).
         - Gráficos com DADOS EXTRAÍDOS DO TEXTO ("barras", "pizza", etc.): {{"dados": [{{"NomeEixoX": "CatA", "NomeEixoY": ValNumA}}, ...], "eixo_x": "NomeEixoX", "eixo_y": "NomeEixoY"}} (Valores DEVEM ser numéricos).
         - "grafico_barras_agrupadas": Se de TABELA: {{"eixo_x": "COL_PRINCIPAL", "eixo_y": "COL_VALOR_NUM", "cor_agrupamento": "COL_SUB_CAT"}}. Se DADOS EXTRAÍDOS: {{"dados": [{{"CatPrincipal": "A", "SubCat": "X", "Valor": 10}}, ...], "eixo_x": "CatPrincipal", "eixo_y": "Valor", "cor_agrupamento": "SubCat"}}.
         
         INSTRUÇÕES CRÍTICAS:
-        1.  NOMES DE COLUNAS: Para gráficos de TABELA, use os NOMES EXATOS das colunas como fornecidos nos "Colunas e tipos".
-        2.  DADOS NUMÉRICOS: Se a coluna de valor de uma TABELA não for numérica (float64/int64) conforme os "tipos inferidos", NÃO sugira gráfico que exija valor numérico para ela, A MENOS que você possa confiavelmente extrair um valor numérico do seu conteúdo textual (ex: de '70%' extrair 70.0; de '70% - 86%' extrair 70.0 ou 78.0; de 'R$ 15,5 Bi' extrair 15.5). Se extrair do texto, coloque em "dados" e certifique-se que os valores sejam números, não strings de números.
-        3.  COBERTURA GEOGRÁFICA (Player, Cidades): Se for apenas lista, sugira "tabela_dados" e forneça os dados extraídos no campo "dados" dos "parametros" com "colunas_titulo".
-        4.  SWOT: Se uma tabela compara SWOTs (ex: Tabela 4 do documento), gere sugestões "lista_swot" INDIVIDUAL para CADA player listado nessa tabela, usando o nome do player no "titulo". Se o SWOT estiver no texto, extraia os pontos para "forcas", "fraquezas", etc.
-        Retorne APENAS a lista JSON válida. Seja conciso na justificativa.
+        1.  NOMES DE COLUNAS: Para gráficos de TABELA, use os NOMES EXATOS das colunas.
+        2.  DADOS NUMÉRICOS: Se coluna de valor de TABELA não for numérica, NÃO sugira gráfico que precise de número para ela, A MENOS que extraia valor numérico dela (ex: '70%' -> 70.0; '70% - 86%' -> 70.0). Se extrair do texto, coloque em "dados", garanta valores numéricos.
+        3.  COBERTURA GEOGRÁFICA (Player, Cidades): Se lista, sugira "tabela_dados" com "dados" nos "parametros" e "colunas_titulo". Não "mapa".
+        4.  SWOT: Se tabela compara SWOTs, gere "lista_swot" INDIVIDUAL por player.
+        Retorne APENAS a lista JSON válida.
         """
-        with st.spinner("🤖 Gemini analisando... (Pode levar alguns instantes)"):
+        with st.spinner("🤖 Gemini analisando..."):
             response = model.generate_content(prompt)
         cleaned_text = response.text.strip().lstrip("```json").rstrip("```").strip()
         sugestoes = json.loads(cleaned_text)
-        if isinstance(sugestoes, list) and all(isinstance(item, dict) for item in sugestoes):
-             st.success(f"{len(sugestoes)} sugestões!"); return sugestoes
+        if isinstance(sugestoes, list): st.success(f"{len(sugestoes)} sugestões!"); return sugestoes
         st.error("Resposta Gemini não é lista JSON."); return []
     except json.JSONDecodeError as e: st.error(f"Erro JSON Gemini: {e}"); st.code(response.text if 'response' in locals() else "N/A", language="text"); return []
     except Exception as e: st.error(f"Erro API Gemini: {e}"); st.text(traceback.format_exc()); return []
 
 def render_kpis(kpi_sugestoes):
+    # ... (Função render_kpis permanece a mesma) ...
     if kpi_sugestoes:
         num_kpis = len(kpi_sugestoes); kpi_cols = st.columns(min(num_kpis, 4)) 
         for i, kpi_sug in enumerate(kpi_sugestoes):
@@ -148,7 +150,9 @@ def render_kpis(kpi_sugestoes):
                 st.metric(label=kpi_sug.get("titulo","KPI"),value=str(params.get("valor","N/A")),delta=delta_val if delta_val else None,help=params.get("descricao"))
         st.divider()
 
+
 def render_swot_card(titulo_completo_swot, swot_data, card_key_prefix=""):
+    # ... (Função render_swot_card permanece a mesma) ...
     st.subheader(f"{titulo_completo_swot}") 
     col1, col2 = st.columns(2)
     swot_map = {"forcas": ("Forças 💪", col1), "fraquezas": ("Fraquezas 📉", col1), 
@@ -164,7 +168,9 @@ def render_swot_card(titulo_completo_swot, swot_data, card_key_prefix=""):
                 st.markdown(f"<div style='margin-bottom: 5px;'>- {item_swot_render}</div>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
+
 def render_plotly_chart(item_config, df_plot_input):
+    # ... (Função render_plotly_chart permanece a mesma) ...
     if df_plot_input is None:
         st.warning(f"Dados não disponíveis para o gráfico '{item_config.get('titulo', 'Sem Título')}'.")
         return False
@@ -203,90 +209,77 @@ def render_plotly_chart(item_config, df_plot_input):
 
 # --- 3. Interface Streamlit Principal ---
 st.set_page_config(layout="wide", page_title="Gemini DOCX Insights")
-for k, dv in [("sugestoes_gemini",[]),("config_sugestoes",{}),("conteudo_docx",{"texto":"","tabelas":[]}),
-              ("nome_arquivo_atual",None),("debug_checkbox_key",False),("pagina_selecionada","Dashboard Principal")]:
+for k, dv in [("s_gemini",[]),("cfg_sugs",{}),("doc_ctx",{"texto":"","tabelas":[]}),
+              ("f_name",None),("dbg_cb_key",False),("pg_sel","Dashboard Principal")]:
     st.session_state.setdefault(k, dv)
 
-st.sidebar.title("✨ Navegação"); pagina_opcoes_sidebar = ["Dashboard Principal", "Análise SWOT Detalhada"]
-st.session_state.pagina_selecionada = st.sidebar.radio(
-    "Selecione:", pagina_opcoes_sidebar, 
-    index=pagina_opcoes_sidebar.index(st.session_state.pagina_selecionada), 
-    key="nav_radio_key_final_v3" 
-)
-st.sidebar.divider(); uploaded_file_sidebar = st.sidebar.file_uploader("Selecione DOCX", type="docx", key="uploader_sidebar_key_final_v3")
-show_debug_info_sidebar = st.sidebar.checkbox("Mostrar Informações de Depuração", 
-                                    value=st.session_state.debug_checkbox_key, 
-                                    key="debug_cb_sidebar_key_final_v3") 
-st.session_state.debug_checkbox_key = show_debug_info_sidebar
+st.sidebar.title("✨ Navegação"); pg_opts_sb = ["Dashboard Principal","Análise SWOT Detalhada"]
+st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v4")
+st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v4")
+st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.session_state.dbg_cb_key,key="debug_cb_sidebar_final_v4")
 
-if uploaded_file_sidebar:
-    if st.session_state.nome_arquivo_atual != uploaded_file_sidebar.name: 
+if uploaded_file_sb:
+    if st.session_state.f_name!=uploaded_file_sb.name: 
         with st.spinner("Processando novo documento..."):
-            st.session_state.sugestoes_gemini, st.session_state.config_sugestoes = [], {}
-            st.session_state.nome_arquivo_atual = uploaded_file_sidebar.name
-            texto_doc_main, tabelas_doc_main = extrair_conteudo_docx(uploaded_file_sidebar)
-            st.session_state.conteudo_docx = {"texto": texto_doc_main, "tabelas": tabelas_doc_main}
-            if texto_doc_main or tabelas_doc_main:
-                sugestoes_main = analisar_documento_com_gemini(texto_doc_main, tabelas_doc_main)
-                st.session_state.sugestoes_gemini = sugestoes_main
-                temp_config_init_main = {}
-                for i_init_main,s_init_main in enumerate(sugestoes_main): 
-                    s_id_init_main = s_init_main.get("id", f"s_init_main_{i_init_main}_{hash(s_init_main.get('titulo',''))}"); s_init_main["id"] = s_id_init_main
-                    temp_config_init_main[s_id_init_main] = {"aceito":True,"titulo_editado":s_init_main.get("titulo","S/Título"),"dados_originais":s_init_main}
-                st.session_state.config_sugestoes = temp_config_init_main
-            else: st.sidebar.warning("Nenhum conteúdo extraído do DOCX.")
+            st.session_state.s_gemini,st.session_state.cfg_sugs=[],{}
+            st.session_state.f_name=uploaded_file_sb.name
+            txt_main,tbls_main=extrair_conteudo_docx(uploaded_file_sb);st.session_state.doc_ctx={"texto":txt_main,"tabelas":tbls_main}
+            if txt_main or tbls_main:
+                sugs_main=analisar_documento_com_gemini(txt_main,tbls_main);st.session_state.s_gemini=sugs_main
+                st.session_state.cfg_sugs={s.get("id",f"s_main_{i}_{hash(s.get('titulo'))}"):{"aceito":True,"titulo_editado":s.get("titulo","S/T"),"dados_originais":s} for i,s in enumerate(sugs_main)}
+            else: st.sidebar.warning("Nenhum conteúdo extraído.")
     
-    if show_debug_info_sidebar and (st.session_state.conteudo_docx["texto"] or st.session_state.conteudo_docx["tabelas"]):
-        with st.expander("Debug: Conteúdo DOCX (após extração e tipos)", expanded=False):
-            st.text_area("Texto (amostra)", st.session_state.conteudo_docx["texto"][:1000], height=80)
-            for t_info_dbg_main in st.session_state.conteudo_docx["tabelas"]:
-                st.write(f"ID: {t_info_dbg_main['id']}, Nome: {t_info_dbg_main['nome']}")
-                try: st.dataframe(t_info_dbg_main['dataframe'].head().astype(str).fillna("-")) 
-                except Exception: st.text(f"Head:\n{t_info_dbg_main['dataframe'].head().to_string(na_rep='-')}")
-                st.write("Tipos:", t_info_dbg_main['dataframe'].dtypes.to_dict())
+    if st.session_state.dbg_cb_key and (st.session_state.doc_ctx["texto"] or st.session_state.doc_ctx["tabelas"]):
+        with st.expander("Debug: Conteúdo DOCX (após extração e tipos)",expanded=False):
+            st.text_area("Texto (amostra)",st.session_state.doc_ctx["texto"][:1000],height=80)
+            for t_dbg_main in st.session_state.doc_ctx["tabelas"]:
+                st.write(f"ID: {t_dbg_main['id']}, Nome: {t_dbg_main['nome']}")
+                try: st.dataframe(t_dbg_main['dataframe'].head().astype(str).fillna("-"))
+                except: st.text(f"Head:\n{t_dbg_main['dataframe'].head().to_string(na_rep='-')}")
+                st.write("Tipos:",t_dbg_main['dataframe'].dtypes.to_dict())
 
-    if st.session_state.sugestoes_gemini:
-        st.sidebar.divider(); st.sidebar.header("⚙️ Configurar Sugestões")
-        for sug_cfg_sidebar in st.session_state.sugestoes_gemini:
-            s_id_cfg_sb = sug_cfg_sidebar.get('id') 
-            if not s_id_cfg_sb : continue 
-            if s_id_cfg_sb not in st.session_state.config_sugestoes:
-                 st.session_state.config_sugestoes[s_id_cfg_sb] = {"aceito":True,"titulo_editado":sug_cfg_sidebar.get("titulo","S/Título"),"dados_originais":sug_cfg_sidebar}
-            cfg_current_sb = st.session_state.config_sugestoes[s_id_cfg_sb]
+    if st.session_state.s_gemini:
+        st.sidebar.divider();st.sidebar.header("⚙️ Configurar Sugestões")
+        for sug_cfg_loop in st.session_state.s_gemini:
+            s_id_loop = sug_cfg_loop.get('id') 
+            if not s_id_loop : continue 
+            if s_id_loop not in st.session_state.cfg_sugs:
+                 st.session_state.cfg_sugs[s_id_loop]={"aceito":True,"titulo_editado":sug_cfg_loop.get("titulo","S/T"),"dados_originais":sug_cfg_loop}
+            cfg_loop = st.session_state.cfg_sugs[s_id_loop]
             
-            with st.sidebar.expander(f"{cfg_current_sb['titulo_editado']}",expanded=False):
-                st.caption(f"Tipo: {sug_cfg_sidebar.get('tipo_sugerido')} | Fonte: {sug_cfg_sidebar.get('fonte_id')}")
-                cfg_current_sb["aceito"]=st.checkbox("Incluir?",value=cfg_current_sb["aceito"],key=f"acc_cfg_{s_id_cfg_sb}")
-                cfg_current_sb["titulo_editado"]=st.text_input("Título",value=cfg_current_sb["titulo_editado"],key=f"tit_cfg_{s_id_cfg_sb}")
+            with st.sidebar.expander(f"{cfg_loop['titulo_editado']}",expanded=False):
+                st.caption(f"Tipo: {sug_cfg_loop.get('tipo_sugerido')} | Fonte: {sug_cfg_loop.get('fonte_id')}")
+                cfg_loop["aceito"]=st.checkbox("Incluir?",value=cfg_loop["aceito"],key=f"acc_loop_{s_id_loop}")
+                cfg_loop["titulo_editado"]=st.text_input("Título",value=cfg_loop["titulo_editado"],key=f"tit_loop_{s_id_loop}")
 else: 
-    if st.session_state.pagina_selecionada == "Dashboard Principal":
-        st.info("Por favor, faça o upload de um arquivo DOCX na barra lateral para começar.")
+    if st.session_state.pg_sel=="Dashboard Principal": st.info("Upload DOCX na barra lateral.")
 
-# --- RENDERIZAÇÃO DA PÁGINA SELECIONADA ---
-if st.session_state.pagina_selecionada == "Dashboard Principal":
-    st.title("📊 Dashboard de Insights do Documento")
-    if uploaded_file_sidebar and st.session_state.sugestoes_gemini:
-        kpis_render, outros_render = [], []
-        for s_id_main_dash, s_cfg_main_dash in st.session_state.config_sugestoes.items():
+if st.session_state.pg_sel=="Dashboard Principal":
+    st.title("📊 Dashboard de Insights")
+    if uploaded_file_sb and st.session_state.s_gemini:
+        kpis_r, outros_r = [], []
+        for s_id_main_dash, s_cfg_main_dash in st.session_state.cfg_sugs.items():
             if s_cfg_main_dash["aceito"]: 
                 item_main_dash = {"titulo":s_cfg_main_dash["titulo_editado"], **s_cfg_main_dash["dados_originais"]}
-                (kpis_render if item_main_dash.get("tipo_sugerido")=="kpi" else outros_render).append(item_main_dash)
+                (kpis_r if item_main_dash.get("tipo_sugerido")=="kpi" else outros_r).append(item_main_dash)
         
-        render_kpis(kpis_render)
+        render_kpis(kpis_r)
         
-        if show_debug_info_sidebar:
-             with st.expander("Debug: Elementos para Dashboard Principal (Não-KPI)", expanded=True): # Expandido por padrão
-                st.json({"Outros Elementos (Configurados e Aceitos)": outros_render}, expanded=False)
+        if st.session_state.dbg_cb_key: # Acessa o valor do session_state diretamente
+             with st.expander("Debug: Elementos para Dashboard Principal (Não-KPI)",expanded=True): 
+                st.json({"Outros Elementos (Configurados e Aceitos)": outros_r}, expanded=False)
         
         elementos_renderizados_dash = 0 
         col_idx_dash = 0 
-        if outros_render:
+        if outros_r:
             item_cols_main_dash = st.columns(2)
-            for item_render_loop in outros_render:
+            for item_render_loop in outros_r:
                 if item_render_loop.get("tipo_sugerido") == "lista_swot": continue 
                 
-                with item_cols_main_dash[col_idx_dash % 2]:
-                    df_plot_loop, rendered_loop = None, False
+                # Inicializa el_rend_d para cada item do loop
+                el_rend_d = False 
+                with item_cols_main_dash[col_idx_dash % 2]: 
+                    df_plot_loop = None 
                     params_loop = item_render_loop.get("parametros",{})
                     tipo_loop = item_render_loop.get("tipo_sugerido")
                     fonte_loop = item_render_loop.get("fonte_id")
@@ -298,84 +291,80 @@ if st.session_state.pagina_selecionada == "Dashboard Principal":
                             try: df_plot_loop=pd.DataFrame(params_loop["dados"])
                             except Exception as e_dfd_loop: st.warning(f"'{titulo_loop}': Erro DF 'dados': {e_dfd_loop}"); continue
                         elif str(fonte_loop).startswith("doc_tabela_"): 
-                            df_plot_loop=next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"]==fonte_loop),None)
+                            df_plot_loop=next((t["dataframe"] for t in st.session_state.doc_ctx["tabelas"] if t["id"]==fonte_loop),None)
                         
                         if tipo_loop=="tabela_dados":
                             df_tbl_loop=None
                             if str(fonte_loop).startswith("texto_") and params_loop.get("dados"):
                                 try: 
                                     df_tbl_loop=pd.DataFrame(params_loop.get("dados")); 
-                                    if params_loop.get("colunas_titulo"): df_tbl_loop.columns=params_loop.get("colunas_titulo")
+                                    if params_loop.get("colunas_titulo"):df_tbl_loop.columns=params_loop.get("colunas_titulo")
                                 except Exception as e_dftxt_loop: st.warning(f"Erro tabela texto '{titulo_loop}': {e_dftxt_loop}")
                             else: 
                                 id_tbl_loop=params_loop.get("id_tabela_original",fonte_loop)
-                                df_tbl_loop=next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"]==id_tbl_loop),None)
+                                df_tbl_loop=next((t["dataframe"] for t in st.session_state.doc_ctx["tabelas"] if t["id"]==id_tbl_loop),None)
                             
                             if df_tbl_loop is not None: 
                                 try: st.dataframe(df_tbl_loop.astype(str).fillna("-"))
-                                except: st.text(df_tbl_loop.to_string(na_rep='-')); 
-                                rendered_loop=True
+                                except Exception: st.text(df_tbl_loop.to_string(na_rep='-')); 
+                                el_rend_d=True
                             else: st.warning(f"Tabela '{titulo_loop}' (Fonte: {fonte_loop}) não encontrada.")
                         
                         elif tipo_loop in ["grafico_barras","grafico_linha","grafico_dispersao","grafico_pizza", "grafico_barras_agrupadas"]:
-                            if render_plotly_chart(item_render_loop, df_plot_loop): rendered_loop = True
+                            if render_plotly_chart(item_render_loop, df_plot_loop): el_rend_d = True
                         
                         elif tipo_loop == 'mapa': 
                             st.info(f"Mapa para '{titulo_loop}' não implementado.")
-                            rendered_loop=True
+                            el_rend_d=True
                         
-                        if not rendered_loop and tipo_loop not in ["kpi","lista_swot","mapa"]: 
+                        if not el_rend_d and tipo_loop not in ["kpi","lista_swot","mapa"]: 
                             st.info(f"'{titulo_loop}' ({tipo_loop}) não gerado. Dados/Tipo não suportado.")
                     except Exception as e_render_loop: 
                         st.error(f"Erro renderizando '{titulo_loop}': {e_render_loop}")
                 
-                if rendered_loop: 
-                    idx_main_dash+=1
-                    elementos_renderizados_dash+=1
+                if el_rend_d: 
+                    col_idx_dash += 1 # Corrigido de idx_main_dash para col_idx_dash
+                    elementos_renderizados_dash += 1 # Corrigido de elementos_renderizados_count para elementos_renderizados_dash
             
-            if elementos_renderizados_dash == 0 and any(c['aceito'] and c['dados_originais'].get('tipo_sugerido') not in ['kpi','lista_swot'] for c in st.session_state.config_sugestoes.values()):
+            if elementos_renderizados_dash == 0 and any(c['aceito'] and c['dados_originais'].get('tipo_sugerido') not in ['kpi','lista_swot'] for c in st.session_state.cfg_sugs.values()):
                 st.info("Nenhum gráfico/tabela (além de KPIs/SWOTs) pôde ser gerado para o Dashboard Principal.")
         
-        elif not kpis_render and not uploaded_file_sidebar: pass 
-        elif not kpis_render and not outros_render and uploaded_file_sidebar and st.session_state.sugestoes_gemini: 
+        elif not kpis_r and not uploaded_file_sidebar: pass 
+        elif not kpis_r and not outros_r and uploaded_file_sidebar and st.session_state.s_gemini: 
             st.info("Nenhum elemento selecionado ou gerado para o dashboard principal.")
 
-elif st.session_state.pagina_selecionada == "Análise SWOT Detalhada":
+elif st.session_state.pg_sel=="Análise SWOT Detalhada":
     st.title("🔬 Análise SWOT Detalhada")
-    if not uploaded_file_sidebar: st.warning("Faça upload de um DOCX na barra lateral.")
-    elif not st.session_state.sugestoes_gemini: st.info("Aguardando processamento ou nenhuma sugestão gerada.")
+    if not uploaded_file_sidebar: st.warning("Upload DOCX na barra lateral.")
+    elif not st.session_state.s_gemini: st.info("Aguardando processamento/sugestões.")
     else:
-        swot_sugs_page = [s_cfg_swot_page["dados_originais"] for s_id_swot_page,s_cfg_swot_page in st.session_state.config_sugestoes.items() 
-                        if s_cfg_swot_page["aceito"] and s_cfg_swot_page["dados_originais"].get("tipo_sugerido")=="lista_swot"]
-        if not swot_sugs_page: st.info("Nenhuma análise SWOT sugerida/selecionada para esta página.")
+        swot_sugs_page_render=[s_cfg_swot["dados_originais"] for s_id_swot,s_cfg_swot in st.session_state.cfg_sugs.items() if s_cfg_swot["aceito"] and s_cfg_swot["dados_originais"].get("tipo_sugerido")=="lista_swot"]
+        if not swot_sugs_page_render: st.info("Nenhuma análise SWOT sugerida/selecionada.")
         else:
             if show_debug_info_sidebar:
-                with st.expander("Debug: Dados para Análise SWOT (Página Dedicada)", expanded=False):
-                    st.json({"SWOTs Selecionados para esta página": swot_sugs_page})
-            for swot_item_render_page in swot_sugs_page:
-                render_swot_card(
-                    swot_item_render_page.get("titulo","Análise SWOT"), 
-                    swot_item_render_page.get("parametros",{}), 
-                    card_key_prefix=swot_item_render_page.get("id","swot_page_default") 
-                )
+                with st.expander("Debug: Dados para Análise SWOT (Página Dedicada)",expanded=False):st.json({"SWOTs Selecionados":swot_sugs_page_render})
+            for swot_item_render_page in swot_sugs_page_render:
+                render_swot_card(swot_item_render_page.get("titulo","SWOT"),swot_item_render_page.get("parametros",{}), card_key_prefix=swot_item_render_page.get("id","swot_pg_def"))
 
-if uploaded_file_sidebar is None and st.session_state.nome_arquivo_atual is not None:
-    keys_to_clear_on_remove = list(st.session_state.keys())
-    preserved_widget_keys_on_remove = [
-        "nav_radio_key_final_v3", "uploader_sidebar_key_final_v3", "debug_cb_sidebar_key_final_v3"
+if uploaded_file_sidebar is None and st.session_state.f_name is not None:
+    keys_to_preserve_on_clear = [
+        "nav_radio_key_final_v4", 
+        "uploader_sidebar_key_final_v4", 
+        "debug_cb_sidebar_key_final_v4"
     ] 
-    for sug_key_cfg_clear in st.session_state.get("sugestoes_gemini", []): # Itera sobre cópia ou usa .get
-        s_id_preserve_val_clear = sug_key_cfg_clear.get('id')
-        if s_id_preserve_val_clear:
-            preserved_widget_keys_on_remove.extend([f"acc_cfg_{s_id_preserve_val_clear}", f"tit_cfg_{s_id_preserve_val_clear}"])
+    for sug_key_cfg_sb_clear in st.session_state.get("s_gemini", []):
+        s_id_preserve_val_sb_clear = sug_key_cfg_sb_clear.get('id')
+        if s_id_preserve_val_sb_clear:
+            keys_to_preserve_on_clear.extend([f"acc_cfg_{s_id_preserve_val_sb_clear}", f"tit_cfg_{s_id_preserve_val_sb_clear}"])
             
-    for key_cl_remove in keys_to_clear_on_remove:
-        if key_cl_remove not in preserved_widget_keys_on_remove:
-            if key_cl_remove in st.session_state: del st.session_state[key_cl_remove]
+    current_keys_on_clear_main = list(st.session_state.keys())
+    for key_cl_main_loop in current_keys_on_clear_main:
+        if key_cl_main_loop not in keys_to_preserve_on_clear:
+            if key_cl_main_loop in st.session_state: del st.session_state[key_cl_main_loop]
     
-    for k_reinit_remove, dv_reinit_remove in [("sugestoes_gemini",[]),("config_sugestoes",{}),
-                                ("conteudo_docx",{"texto":"","tabelas":[]}),
-                                ("nome_arquivo_atual",None),("debug_checkbox_key",False), 
-                                ("pagina_selecionada","Dashboard Principal")]:
-        st.session_state.setdefault(k_reinit_remove, dv_reinit_remove)
+    for k_reinit_main, dv_reinit_main in [("s_gemini",[]),("cfg_sugs",{}),
+                                ("doc_ctx",{"texto":"","tabelas":[]}),
+                                ("f_name",None),("dbg_cb_key",False), 
+                                ("pg_sel","Dashboard Principal")]:
+        st.session_state.setdefault(k_reinit_main, dv_reinit_main)
     st.experimental_rerun()
