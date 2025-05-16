@@ -1,0 +1,5 @@
+streamlit==1.28.0
+pandas==2.1.0
+python-docx==0.8.11
+plotly==5.17.0
+spacy==3.7.0
