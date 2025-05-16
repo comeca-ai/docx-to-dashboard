@@ -132,7 +132,7 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
             response = model.generate_content(prompt)
         cleaned_text = response.text.strip().lstrip("```json").rstrip("```").strip()
         sugestoes = json.loads(cleaned_text)
-        if isinstance(sugestoes, list): st.success(f"{len(sugestoes)} sugestões!"); return sugestoes
+        if isinstance(sugestoes, list) and all(isinstance(item, dict) for item in sugestoes): st.success(f"{len(sugestoes)} sugestões!"); return sugestoes
         st.error("Resposta Gemini não é lista JSON."); return []
     except json.JSONDecodeError as e: st.error(f"Erro JSON Gemini: {e}"); st.code(response.text if 'response' in locals() else "N/A", language="text"); return []
     except Exception as e: st.error(f"Erro API Gemini: {e}"); st.text(traceback.format_exc()); return []
@@ -206,9 +206,9 @@ for k, dv in [("s_gemini",[]),("cfg_sugs",{}),("doc_ctx",{"texto":"","tabelas":[
     st.session_state.setdefault(k, dv)
 
 st.sidebar.title("✨ Navegação"); pg_opts_sb = ["Dashboard Principal","Análise SWOT Detalhada"]
-st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v5") # Chave única para o widget
-st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v5") # Chave única
-st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.session_state.dbg_cb_key,key="debug_cb_sidebar_final_v5") # Chave única
+st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v6")
+st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v6")
+st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.session_state.dbg_cb_key,key="debug_cb_sidebar_final_v6")
 
 if uploaded_file_sb:
     if st.session_state.f_name!=uploaded_file_sb.name: 
@@ -262,7 +262,7 @@ if st.session_state.pg_sel=="Dashboard Principal":
                 st.json({"Outros Elementos (Configurados e Aceitos)": outros_r}, expanded=False)
         
         elementos_renderizados_dash = 0 
-        col_idx_dash = 0 # Inicializa idx_main_dash (ou col_idx_f como era antes) AQUI
+        col_idx_dash = 0 # Inicializado aqui
 
         if outros_r:
             item_cols_main_dash = st.columns(2)
@@ -314,8 +314,8 @@ if st.session_state.pg_sel=="Dashboard Principal":
                     except Exception as e_render_loop: 
                         st.error(f"Erro renderizando '{titulo_loop}': {e_render_loop}")
                 
-                if el_rend_d: 
-                    col_idx_dash += 1 # Usa a variável inicializada
+                if el_rend_d: # Esta linha é a que o traceback indicava como erro
+                    col_idx_dash += 1 # CORRIGIDO: Usa col_idx_dash
                     elementos_renderizados_dash += 1 
             
             if elementos_renderizados_dash == 0 and any(c['aceito'] and c['dados_originais'].get('tipo_sugerido') not in ['kpi','lista_swot'] for c in st.session_state.cfg_sugs.values()):
@@ -333,37 +333,31 @@ elif st.session_state.pg_sel=="Análise SWOT Detalhada":
         swot_sugs_page_render=[s_cfg_swot["dados_originais"] for s_id_swot,s_cfg_swot in st.session_state.cfg_sugs.items() if s_cfg_swot["aceito"] and s_cfg_swot["dados_originais"].get("tipo_sugerido")=="lista_swot"]
         if not swot_sugs_page_render: st.info("Nenhuma análise SWOT sugerida/selecionada.")
         else:
-            if show_debug_info_sidebar: # Usa a variável correta do checkbox
+            if st.session_state.dbg_cb_key: # Usa a variável de estado correta
                 with st.expander("Debug: Dados para Análise SWOT (Página Dedicada)",expanded=False):st.json({"SWOTs Selecionados":swot_sugs_page_render})
             for swot_item_render_page in swot_sugs_page_render:
                 render_swot_card(swot_item_render_page.get("titulo","SWOT"),swot_item_render_page.get("parametros",{}), card_key_prefix=swot_item_render_page.get("id","swot_pg_def"))
 
 if uploaded_file_sb is None and st.session_state.f_name is not None:
     keys_to_clear_on_remove = list(st.session_state.keys())
-    # Lista de chaves de widgets que você quer preservar. Adapte conforme as chaves únicas que você usou.
     preserved_widget_keys_on_remove = [
-        "nav_radio_key_final_v5", # Chave do widget de navegação
-        "uploader_sidebar_key_final_v5", # Chave do file_uploader
-        "debug_cb_sidebar_key_final_v5"  # Chave do checkbox de debug
+        "nav_radio_key_final_v6", # Atualize para as chaves únicas usadas
+        "uploader_sidebar_key_final_v6", 
+        "debug_cb_sidebar_key_final_v6"
     ] 
-    # Adiciona chaves dos widgets da sidebar de configuração dinamicamente
-    if "s_gemini" in st.session_state: # Verifica se sugestoes_gemini existe
+    if "s_gemini" in st.session_state: # Verifica se existe antes de iterar
         for sug_key_cfg_clear in st.session_state.s_gemini:
             s_id_preserve_val_clear = sug_key_cfg_clear.get('id')
             if s_id_preserve_val_clear:
                 preserved_widget_keys_on_remove.extend([f"acc_loop_{s_id_preserve_val_clear}", f"tit_loop_{s_id_preserve_val_clear}"])
-                # Adicione aqui outras chaves de selectbox da sidebar se elas forem dinâmicas também
-                # Ex: f"px_sb_{s_id_preserve_val_clear}", f"py_sb_{s_id_preserve_val_clear}", etc.
             
     for key_cl_remove in keys_to_clear_on_remove:
         if key_cl_remove not in preserved_widget_keys_on_remove:
-            if key_cl_remove in st.session_state: # Verifica se a chave ainda existe antes de deletar
-                del st.session_state[key_cl_remove]
+            if key_cl_remove in st.session_state: del st.session_state[key_cl_remove]
     
-    # Re-inicializa os estados principais da aplicação para um novo ciclo
     for k_reinit_main, dv_reinit_main in [("s_gemini",[]),("cfg_sugs",{}),
                                 ("doc_ctx",{"texto":"","tabelas":[]}),
-                                ("f_name",None),("dbg_cb_key",False), # Usa a chave correta
+                                ("f_name",None),("dbg_cb_key",False), 
                                 ("pg_sel","Dashboard Principal")]:
-        st.session_state.setdefault(k_reinit_main, dv_reinit_main) # Usa setdefault para não sobrescrever se já existir por widgets
+        st.session_state.setdefault(k_reinit_main, dv_reinit_main)
     st.experimental_rerun()
