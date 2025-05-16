@@ -3,4 +3,5 @@ pandas
 python-docx
 plotly
 google-generativeai
+tabulate
 # spacy (se estiver usando)
