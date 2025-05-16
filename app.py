@@ -11,7 +11,9 @@ import re
 # --- 1. Configuração da Chave da API do Gemini ---
 def get_gemini_api_key():
     try: return st.secrets["GOOGLE_API_KEY"]
-    except: api_key = os.environ.get("GOOGLE_API_KEY"); return api_key if api_key else None
+    except (FileNotFoundError, KeyError): 
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        return api_key if api_key else None
 
 # --- 2. Funções de Processamento do Documento e Interação com Gemini ---
 def parse_value_for_numeric(val_str_in):
@@ -46,15 +48,15 @@ def extrair_conteudo_docx(uploaded_file):
             for r_idx, row in enumerate(table_obj.rows):
                 cells = [c.text.strip() for c in row.cells]
                 if r_idx == 0: keys = [k.replace("\n"," ").strip() if k else f"Col{c_idx+1}" for c_idx, k in enumerate(cells)]; continue
-                if keys: data_rows.append(dict(zip(keys, cells + [None]*(len(keys)-len(cells)))))
+                if keys: data_rows.append(dict(zip(keys, cells + [None]*(len(keys)-len(cells))))) # Preenche se células faltarem
             if data_rows:
                 df = pd.DataFrame(data_rows)
                 for col in df.columns:
                     original_series = df[col].copy()
                     num_series = original_series.astype(str).apply(parse_value_for_numeric)
-                    if num_series.notna().sum() / max(1, len(num_series)) > 0.3:
+                    if num_series.notna().sum() / max(1, len(num_series)) > 0.3: # Evita divisão por zero
                         df[col] = pd.to_numeric(num_series, errors='coerce')
-                        continue
+                        continue 
                     else: df[col] = original_series 
                     try:
                         temp_str_col = df[col].astype(str)
@@ -83,18 +85,10 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
             df, nome_t, id_t = t_info["dataframe"], t_info["nome"], t_info["id"]
             sample_df = df.head(3).iloc[:, :min(5, len(df.columns))]
             md_table = sample_df.to_markdown(index=False)
-            
-            # Correção para df.dtypes.items()
             colunas_para_mostrar_tipos = df.columns.tolist()[:min(8, len(df.columns))]
-            col_types_list = []
-            for col_name_prompt in colunas_para_mostrar_tipos:
-                dtype_str_prompt = str(df[col_name_prompt].dtype)
-                col_types_list.append(f"'{col_name_prompt}' (tipo: {dtype_str_prompt})")
+            col_types_list = [f"'{col_name_prompt}' (tipo: {str(df[col_name_prompt].dtype)})" for col_name_prompt in colunas_para_mostrar_tipos]
             col_types_str = ", ".join(col_types_list)
-            
-            tabelas_prompt_str += f"\n--- Tabela '{nome_t}' (ID: {id_t}) ---\n"
-            tabelas_prompt_str += f"Colunas e tipos (primeiras {len(colunas_para_mostrar_tipos)}): {col_types_str}\n"
-            tabelas_prompt_str += f"Amostra de dados:\n{md_table}\n"
+            tabelas_prompt_str += f"\n--- Tabela '{nome_t}' (ID: {id_t}) ---\nColunas e tipos (primeiras {len(colunas_para_mostrar_tipos)}): {col_types_str}\nAmostra de dados:\n{md_table}\n"
         
         text_limit = 50000
         prompt_text = texto_doc[:text_limit] + ("\n[TEXTO TRUNCADO...]" if len(texto_doc) > text_limit else "")
@@ -141,10 +135,10 @@ for k, default_val in [("sugestoes_gemini", []), ("config_sugestoes", {}),
                        ("nome_arquivo_atual", None), ("debug_checkbox_key_main", False)]:
     st.session_state.setdefault(k, default_val)
 
-uploaded_file = st.file_uploader("Selecione DOCX", type="docx", key="uploader_main_key_vfinal_corrected")
+uploaded_file = st.file_uploader("Selecione DOCX", type="docx", key="uploader_main_key_vfinal_corrected_again")
 show_debug_info = st.sidebar.checkbox("Mostrar Informações de Depuração", 
                                     value=st.session_state.debug_checkbox_key_main, 
-                                    key="debug_cb_widget_key_vfinal_corrected")
+                                    key="debug_cb_widget_key_vfinal_corrected_again")
 st.session_state.debug_checkbox_key_main = show_debug_info
 
 if uploaded_file:
@@ -221,11 +215,14 @@ if st.session_state.sugestoes_gemini:
                 if outros_dash_f: st.json({"Outros Elementos Selecionados": outros_dash_f}, expanded=False)
         
         elementos_renderizados_final_count = 0 
+        col_idx_f = 0 # Inicializa col_idx_f ANTES do if outros_dash_f
+
         if outros_dash_f:
-            item_cols_render = st.columns(2); col_idx_dash = 0 
+            item_cols_render = st.columns(2)
             for item_d_main in outros_dash_f:
-                with item_cols_render[col_idx_dash % 2]:
-                    st.subheader(item_d_main["titulo"]); df_plot_d, el_rend_d = None, False
+                el_rend_d = False # INICIALIZA el_rend_d para cada item do loop
+                with item_cols_render[col_idx_f % 2]: 
+                    st.subheader(item_d_main["titulo"]); df_plot_d = None 
                     params_d=item_d_main.get("parametros",{}); tipo_d=item_d_main.get("tipo_sugerido"); fonte_d=item_d_main.get("fonte_id")
                     try:
                         if params_d.get("dados"):
@@ -268,26 +265,15 @@ if st.session_state.sugestoes_gemini:
                             if fn_d and all(k_col_d in df_plot_d.columns for k_col_d in p_args_d.values() if isinstance(k_col_d,str)):
                                 try:
                                     cols_to_check_na_f = [val_f for val_f in p_args_d.values() if isinstance(val_f, str) and val_f in df_plot_d.columns]
-                                    df_plot_f_cleaned = df_plot_d.dropna(subset=cols_to_check_na_f).copy() # Usa .copy() para evitar SettingWithCopyWarning
-
-                                    # Tenta converter colunas de plotagem para numérico se necessário (Y ou Valores)
-                                    y_axis_col = p_args_d.get("y")
-                                    values_col = p_args_d.get("values")
-                                    if y_axis_col and y_axis_col in df_plot_f_cleaned.columns:
-                                        df_plot_f_cleaned[y_axis_col] = pd.to_numeric(df_plot_f_cleaned[y_axis_col], errors='coerce')
-                                    if values_col and values_col in df_plot_f_cleaned.columns:
-                                         df_plot_f_cleaned[values_col] = pd.to_numeric(df_plot_f_cleaned[values_col], errors='coerce')
-                                    
-                                    # Remove NaNs novamente após conversão explícita
+                                    df_plot_f_cleaned = df_plot_d.dropna(subset=cols_to_check_na_f).copy()
+                                    y_axis_col = p_args_d.get("y"); values_col = p_args_d.get("values")
+                                    if y_axis_col and y_axis_col in df_plot_f_cleaned.columns: df_plot_f_cleaned[y_axis_col] = pd.to_numeric(df_plot_f_cleaned[y_axis_col], errors='coerce')
+                                    if values_col and values_col in df_plot_f_cleaned.columns: df_plot_f_cleaned[values_col] = pd.to_numeric(df_plot_f_cleaned[values_col], errors='coerce')
                                     df_plot_f_cleaned.dropna(subset=cols_to_check_na_f, inplace=True)
-
-
                                     if not df_plot_f_cleaned.empty:
                                         st.plotly_chart(fn_d(df_plot_f_cleaned,title=item_d_main["titulo"],**p_args_d),use_container_width=True); el_rend_d=True
-                                    else:
-                                        st.warning(f"Dados insuficientes para '{item_d_main['titulo']}' após remover NaNs das colunas de plotagem.")
-
-                                except Exception as e_plotly_f: st.warning(f"Erro Plotly '{item_d_main['titulo']}': {e_plotly_f}. Verifique tipos. Params: {p_args_d}. DF Dtypes: {df_plot_d.dtypes.to_dict() if df_plot_d is not None else 'DF é None'}")
+                                    else: st.warning(f"Dados insuficientes para '{item_d_main['titulo']}' após remover NaNs.")
+                                except Exception as e_plotly_f: st.warning(f"Erro Plotly '{item_d_main['titulo']}': {e_plotly_f}.")
                             elif fn_d: st.warning(f"Colunas ausentes/incorretas para '{item_d_main['titulo']}'. Esperado: {p_args_d}. Disponível: {df_plot_d.columns.tolist() if df_plot_d is not None else 'DF é None'}")
                         
                         if tipo_d == 'mapa': st.info(f"Mapa para '{item_d_main['titulo']}' não implementado."); el_rend_d=True
@@ -296,22 +282,29 @@ if st.session_state.sugestoes_gemini:
                             st.info(f"'{item_d_main['titulo']}' (tipo: {tipo_d}) não gerado. Dados/Tipo não suportado ou DF não pôde ser criado/encontrado.")
                     except Exception as e_main_render_f: st.error(f"Erro renderizando '{item_d_main['titulo']}': {e_main_render_f}")
                 
-                if el_rend_d: col_idx_f+=1; elementos_renderizados_final_count+=1
+                if el_rend_d: 
+                    col_idx_f += 1 # Incrementa o índice da coluna do dashboard
+                    elementos_renderizados_final_count += 1 
         
         if elementos_renderizados_final_count == 0 and any(c['aceito'] and c['dados_originais'].get('tipo_sugerido') != 'kpi' for c in st.session_state.config_sugestoes.values()):
             st.info("Nenhum gráfico/tabela (além de KPIs) pôde ser gerado.")
-        elif elementos_renderizados_final_count == 0 and not kpis_dash_f: # Corrigido para kpis_dash_f
+        elif elementos_renderizados_final_count == 0 and not kpis_dash_f: 
             st.info("Nenhum elemento selecionado ou pôde ser gerado para o dashboard.")
 
 elif uploaded_file is None and st.session_state.nome_arquivo_atual is not None:
     keys_to_clear_final = list(st.session_state.keys())
     for key_clear_f in keys_to_clear_final:
-        # Preserva chaves de widgets para evitar que o Streamlit se perca
-        if not key_clear_f.endswith(("_key", "_widget_key", "_key_main", "_vfinal_corrected")): # Ajuste esta lista conforme suas chaves de widget
+        if not key_clear_f.startswith("debug_cb_widget_key_") and \
+           not key_clear_f.startswith("uploader_main_key_") and \
+           not key_clear_f.startswith("acc_sb_") and \
+           not key_clear_f.startswith("tit_sb_") and \
+           not key_clear_f.startswith("px_sb_") and \
+           not key_clear_f.startswith("py_sb_") and \
+           not key_clear_f.startswith("pcat_sb_") and \
+           not key_clear_f.startswith("pval_sb_") :
             del st.session_state[key_clear_f]
-    # Reinicializa os estados principais da aplicação
     st.session_state.sugestoes_gemini, st.session_state.config_sugestoes = [], {}
     st.session_state.conteudo_docx = {"texto": "", "tabelas": []}
     st.session_state.nome_arquivo_atual = None
-    st.session_state.debug_checkbox_key_main = False # Reseta o estado do checkbox de debug
+    st.session_state.debug_checkbox_key_main = False
     st.experimental_rerun()
