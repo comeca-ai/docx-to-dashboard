@@ -2,4 +2,5 @@ streamlit
 pandas
 python-docx
 plotly
-spacy
+google-generativeai
+# spacy (se estiver usando)
