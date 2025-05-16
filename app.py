@@ -206,9 +206,10 @@ for k, dv in [("s_gemini",[]),("cfg_sugs",{}),("doc_ctx",{"texto":"","tabelas":[
     st.session_state.setdefault(k, dv)
 
 st.sidebar.title("✨ Navegação"); pg_opts_sb = ["Dashboard Principal","Análise SWOT Detalhada"]
-st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v6")
-st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v6")
-st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.session_state.dbg_cb_key,key="debug_cb_sidebar_final_v6")
+st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v7")
+st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v7")
+# A chave do widget 'debug_cb_sidebar_key_final_v7' atualiza st.session_state.dbg_cb_key
+st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.session_state.dbg_cb_key,key="debug_cb_sidebar_final_v7")
 
 if uploaded_file_sb:
     if st.session_state.f_name!=uploaded_file_sb.name: 
@@ -221,7 +222,7 @@ if uploaded_file_sb:
                 st.session_state.cfg_sugs={s.get("id",f"s_main_{i}_{hash(s.get('titulo'))}"):{"aceito":True,"titulo_editado":s.get("titulo","S/T"),"dados_originais":s} for i,s in enumerate(sugs_main)}
             else: st.sidebar.warning("Nenhum conteúdo extraído.")
     
-    if st.session_state.dbg_cb_key and (st.session_state.doc_ctx["texto"] or st.session_state.doc_ctx["tabelas"]):
+    if st.session_state.dbg_cb_key and (st.session_state.doc_ctx["texto"] or st.session_state.doc_ctx["tabelas"]): # Usa o estado correto
         with st.expander("Debug: Conteúdo DOCX (após extração e tipos)",expanded=False):
             st.text_area("Texto (amostra)",st.session_state.doc_ctx["texto"][:1000],height=80)
             for t_dbg_main in st.session_state.doc_ctx["tabelas"]:
@@ -257,13 +258,12 @@ if st.session_state.pg_sel=="Dashboard Principal":
         
         render_kpis(kpis_r)
         
-        if st.session_state.dbg_cb_key: 
+        if st.session_state.dbg_cb_key: # Usa o estado correto
              with st.expander("Debug: Elementos para Dashboard Principal (Não-KPI)",expanded=True): 
                 st.json({"Outros Elementos (Configurados e Aceitos)": outros_r}, expanded=False)
         
         elementos_renderizados_dash = 0 
-        col_idx_dash = 0 # Inicializado aqui
-
+        col_idx_dash = 0 
         if outros_r:
             item_cols_main_dash = st.columns(2)
             for item_render_loop in outros_r:
@@ -314,8 +314,8 @@ if st.session_state.pg_sel=="Dashboard Principal":
                     except Exception as e_render_loop: 
                         st.error(f"Erro renderizando '{titulo_loop}': {e_render_loop}")
                 
-                if el_rend_d: # Esta linha é a que o traceback indicava como erro
-                    col_idx_dash += 1 # CORRIGIDO: Usa col_idx_dash
+                if el_rend_d: 
+                    col_idx_dash += 1 
                     elementos_renderizados_dash += 1 
             
             if elementos_renderizados_dash == 0 and any(c['aceito'] and c['dados_originais'].get('tipo_sugerido') not in ['kpi','lista_swot'] for c in st.session_state.cfg_sugs.values()):
@@ -333,7 +333,7 @@ elif st.session_state.pg_sel=="Análise SWOT Detalhada":
         swot_sugs_page_render=[s_cfg_swot["dados_originais"] for s_id_swot,s_cfg_swot in st.session_state.cfg_sugs.items() if s_cfg_swot["aceito"] and s_cfg_swot["dados_originais"].get("tipo_sugerido")=="lista_swot"]
         if not swot_sugs_page_render: st.info("Nenhuma análise SWOT sugerida/selecionada.")
         else:
-            if st.session_state.dbg_cb_key: # Usa a variável de estado correta
+            if st.session_state.dbg_cb_key: # Usa o estado correto
                 with st.expander("Debug: Dados para Análise SWOT (Página Dedicada)",expanded=False):st.json({"SWOTs Selecionados":swot_sugs_page_render})
             for swot_item_render_page in swot_sugs_page_render:
                 render_swot_card(swot_item_render_page.get("titulo","SWOT"),swot_item_render_page.get("parametros",{}), card_key_prefix=swot_item_render_page.get("id","swot_pg_def"))
@@ -341,11 +341,11 @@ elif st.session_state.pg_sel=="Análise SWOT Detalhada":
 if uploaded_file_sb is None and st.session_state.f_name is not None:
     keys_to_clear_on_remove = list(st.session_state.keys())
     preserved_widget_keys_on_remove = [
-        "nav_radio_key_final_v6", # Atualize para as chaves únicas usadas
-        "uploader_sidebar_key_final_v6", 
-        "debug_cb_sidebar_key_final_v6"
+        "nav_radio_key_final_v7", # Atualize para as chaves únicas usadas
+        "uploader_sidebar_key_final_v7", 
+        "debug_cb_sidebar_key_final_v7"
     ] 
-    if "s_gemini" in st.session_state: # Verifica se existe antes de iterar
+    if "s_gemini" in st.session_state: 
         for sug_key_cfg_clear in st.session_state.s_gemini:
             s_id_preserve_val_clear = sug_key_cfg_clear.get('id')
             if s_id_preserve_val_clear:
