@@ -360,4 +360,4 @@ if uploaded_file_sb is None and st.session_state.f_name is not None:
                                 ("f_name",None),("dbg_cb_key",False), 
                                 ("pg_sel","Dashboard Principal")]:
         st.session_state.setdefault(k_reinit_main, dv_reinit_main)
-    st.experimental_rerun()
+    st.rerun()
