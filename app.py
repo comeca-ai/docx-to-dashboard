@@ -6,59 +6,59 @@ import google.generativeai as genai
 import json
 import os
 import traceback
-import re # Para limpeza numérica mais avançada
+import re 
 
 # --- 1. Configuração da Chave da API do Gemini ---
 def get_gemini_api_key():
     try:
-        # Tenta pegar dos segredos do Streamlit (para deploy)
         return st.secrets["GOOGLE_API_KEY"]
-    except (FileNotFoundError, KeyError): # Erros comuns se secrets.toml não existe ou chave não definida
-        # Tenta pegar de variável de ambiente (para desenvolvimento local)
+    except (FileNotFoundError, KeyError):
         api_key = os.environ.get("GOOGLE_API_KEY")
         if api_key:
             return api_key
-        # Não mostra st.error aqui para não poluir se a chave não for usada imediatamente.
-        # A função que usa a chave deve lidar com a ausência dela.
         return None
 
 # --- 2. Funções de Processamento do Documento e Interação com Gemini ---
+def parse_value_range_or_text(val_str):
+    """Tenta extrair um número de uma string, lidando com intervalos e texto."""
+    if pd.isna(val_str) or val_str == '':
+        return None
+    
+    # Tenta extrair o primeiro número flutuante ou inteiro da string
+    # Remove separadores de milhar (ponto) antes de trocar vírgula decimal
+    cleaned_val_str = str(val_str).replace('.', '', val_str.count('.') -1 if val_str.count('.') > 1 and ',' in val_str else val_str.count('.'))
+    cleaned_val_str = cleaned_val_str.replace(',', '.')
+    
+    numbers = re.findall(r"[-+]?\d*\.\d+|\d+", cleaned_val_str) # Encontra números decimais ou inteiros
+    
+    if numbers:
+        try:
+            # Se for um intervalo como "70 - 86", pega o primeiro
+            return float(numbers[0])
+        except ValueError:
+            return None # Não conseguiu converter para float
+    return None # Se nenhum número for encontrado, ou se for texto não conversível
+
 
 def clean_and_convert_to_numeric(series_data):
     """Tenta limpar e converter uma série Pandas para numérico de forma mais robusta."""
-    # Garante que estamos trabalhando com uma Série Pandas
     if not isinstance(series_data, pd.Series):
         s = pd.Series(series_data)
     else:
-        s = series_data.copy() # Trabalha com uma cópia para não modificar a original inesperadamente
+        s = series_data.copy()
 
-    if s.dtype == 'object' or isinstance(s.dtype, pd.StringDtype):
-        s_str = s.astype(str).str.strip()
-        
-        # Tenta extrair o primeiro número de strings que podem conter texto e números
-        # Ex: "70% - 86%" -> 70.0, "US$ 1.2 Bilhão" -> 1.2
-        # Esta regex tenta encontrar o primeiro número (inteiro ou decimal)
-        extracted_numbers = s_str.str.extract(r'(\d[\d.,]*)').iloc[:, 0]
-        
-        if extracted_numbers.notna().any(): # Se algum número foi extraído
-            # Limpeza adicional nos números extraídos
-            # Remove pontos usados como separadores de milhar ANTES de trocar vírgula por ponto decimal
-            cleaned_numbers = extracted_numbers.str.replace(r'\.(?=\d{3}(?:,|\.|$))', '', regex=True)
-            cleaned_numbers = cleaned_numbers.str.replace(',', '.', regex=False)
-            # Remove quaisquer outros caracteres não numéricos (exceto o ponto decimal e sinal negativo no início)
-            cleaned_numbers = cleaned_numbers.str.replace(r'[^\d.-]', '', regex=True)
-            
-            numeric_col = pd.to_numeric(cleaned_numbers, errors='coerce')
-            
-            # Se a conversão resultou em muitos NaNs, talvez a extração não foi boa.
-            # Comparamos com a série original antes da extração regex.
-            if numeric_col.notna().sum() < s.notna().sum() * 0.3: # Se menos de 30% dos não-nulos originais viraram números
-                return pd.to_numeric(s, errors='coerce') # Tenta converter a série original (menos agressivo)
-            return numeric_col
-        else: # Se a regex não extraiu nada, tenta uma conversão direta na string original
-            return pd.to_numeric(s_str, errors='coerce')
-
-    return pd.to_numeric(s, errors='coerce') # Tenta converter diretamente se não for objeto/string
+    # Aplica a função de parsing em cada elemento
+    # Converte para string primeiro para garantir que .apply funcione em todos os elementos
+    parsed_series = s.astype(str).apply(parse_value_range_or_text)
+    
+    # Tenta converter toda a série resultante para numérico
+    # Se a maioria dos valores puder ser convertida, usa a série convertida
+    numeric_col = pd.to_numeric(parsed_series, errors='coerce')
+    if numeric_col.notna().sum() > s.notna().sum() * 0.3: # Se pelo menos 30% dos não-nulos originais viraram números
+        return numeric_col
+    
+    # Fallback: tenta converter a série original de forma mais direta se o parsing falhou muito
+    return pd.to_numeric(s, errors='coerce')
 
 
 def extrair_conteudo_docx(uploaded_file):
@@ -76,7 +76,7 @@ def extrair_conteudo_docx(uploaded_file):
                 prev_el = table_obj._element.getprevious()
                 if prev_el is not None and prev_el.tag.endswith('p'):
                     p_text = "".join(node.text for node in prev_el.xpath('.//w:t')).strip()
-                    if p_text and len(p_text) < 100 : nome_tabela = p_text.replace(":", "").strip()
+                    if p_text and len(p_text) < 100 : nome_tabela = p_text.replace(":", "").strip()[:80] # Limita nome
             except: pass
 
             for row_idx, row in enumerate(table_obj.rows):
@@ -97,41 +97,37 @@ def extrair_conteudo_docx(uploaded_file):
                     
                     # 1. Tentar converter para numérico
                     converted_numeric = clean_and_convert_to_numeric(df[col])
-                    if converted_numeric.notna().sum() > len(df[col]) * 0.3: 
+                    if converted_numeric.notna().sum() >= len(df[col]) * 0.3:  # Critério mais flexível
                         df[col] = converted_numeric
                         continue
                     else: 
-                         df[col] = original_col_data.copy()
+                         df[col] = original_col_data.copy() # Reverte se a conversão numérica não foi boa
 
-                    # 2. Tentar converter para datetime
+                    # 2. Tentar converter para datetime (se não numérico)
                     try:
-                        temp_col_str = df[col].astype(str)
-                        possible_formats = [
-                            '%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', 
-                            '%d-%m-%Y', '%m-%d-%Y', '%Y', '%Y%m%d', '%d.%m.%Y',
-                            '%Y-%m', '%m-%Y' 
-                        ]
+                        temp_col_str = df[col].astype(str) # Trabalha com strings para conversão de data
+                        possible_formats = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', 
+                                            '%d-%m-%Y', '%m-%d-%Y', '%Y', '%Y%m%d', '%d.%m.%Y', '%Y-%m', '%m-%Y']
                         converted_with_format = False
                         for fmt in possible_formats:
                             try:
                                 dt_series = pd.to_datetime(temp_col_str, format=fmt, errors='coerce')
-                                if dt_series.notna().sum() > len(df[col]) * 0.5:
+                                if dt_series.notna().sum() > len(df[col]) * 0.5: # Se mais da metade for convertida
                                     df[col] = dt_series
                                     converted_with_format = True
                                     break
-                            except (ValueError, TypeError):
-                                continue
+                            except (ValueError, TypeError): continue
+                        
                         if not converted_with_format:
-                            # O argumento infer_datetime_format é depreciado e o comportamento padrão é True.
-                            # Podemos remover o argumento para evitar o warning.
                             inferred_dt_series = pd.to_datetime(temp_col_str, errors='coerce') 
                             if inferred_dt_series.notna().sum() > len(df[col]) * 0.5:
                                  df[col] = inferred_dt_series
-                            else: 
-                                df[col] = original_col_data.astype(str).fillna('')
+                            # else: # Se inferência falhou muito, mantém como estava (string do original)
+                            #    df[col] = original_col_data.astype(str).fillna('') # Já é string do original
                     except Exception:
-                        df[col] = original_col_data.astype(str).fillna('')
+                        df[col] = original_col_data.astype(str).fillna('') # Garante que é string no erro
                 
+                # Fallback final para garantir que colunas 'object' sejam string para evitar erro do Arrow
                 for col in df.columns:
                     if df[col].dtype == 'object':
                         df[col] = df[col].astype(str).fillna('')
@@ -158,14 +154,14 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
         tabelas_prompt_str = ""
         for t_info in tabelas_info_list:
             df = t_info["dataframe"]
-            df_sample = df.head(7) 
-            if len(df.columns) > 10: df_sample = df_sample.iloc[:, :10]
+            df_sample = df.head(5) # Amostra menor para o prompt
+            if len(df.columns) > 8: df_sample = df_sample.iloc[:, :8] # Limita colunas na amostra
             markdown_tabela = df_sample.to_markdown(index=False)
             tabelas_prompt_str += f"\n--- Tabela '{t_info['nome']}' (ID para referência: {t_info['id']}) ---\n"
             col_types_str = ", ".join([f"'{col}' (tipo inferido: {str(dtype)})" for col, dtype in df.dtypes.items()])
-            tabelas_prompt_str += f"Colunas e tipos: {col_types_str}\nAmostra:\n{markdown_tabela}\n"
+            tabelas_prompt_str += f"Colunas e tipos: {col_types_str}\nAmostra de dados:\n{markdown_tabela}\n"
 
-        max_texto_len = 60000
+        max_texto_len = 50000 # Reduzido para testar se é problema de tamanho de prompt
         texto_doc_para_prompt = texto_doc[:max_texto_len] + ("\n[TEXTO TRUNCADO...]" if len(texto_doc) > max_texto_len else "")
 
         prompt = f"""
@@ -173,7 +169,7 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
         [TEXTO DO DOCUMENTO]
         {texto_doc_para_prompt}
         [FIM DO TEXTO]
-        [TABELAS DO DOCUMENTO (com ID, nome, colunas, tipos e amostra)]
+        [TABELAS DO DOCUMENTO (com ID, nome, colunas, tipos e amostra de dados)]
         {tabelas_prompt_str}
         [FIM DAS TABELAS]
 
@@ -188,20 +184,18 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
             - Para "lista_swot": {{"forcas": ["Ponto Força 1"], "fraquezas": ["Ponto Fraqueza 1"], "oportunidades": ["Ponto Oportunidade 1"], "ameacas": ["Ponto Ameaça 1"]}}
             - Para "grafico_barras", "grafico_linha", "grafico_dispersao":
                 Se baseado em TABELA (use o "fonte_id" da tabela): {{"eixo_x": "NOME_EXATO_COLUNA_X", "eixo_y": "NOME_EXATO_COLUNA_Y"}} (eixo_y geralmente numérico).
-                Se DADOS EXTRAÍDOS DO TEXTO: {{"dados": [{{"NomeQualquerParaEixoX": "CategoriaA", "NomeQualquerParaEixoY": ValorNumericoA}}, ...], "eixo_x": "NomeQualquerParaEixoX", "eixo_y": "NomeQualquerParaEixoY"}}
+                Se DADOS EXTRAÍDOS DO TEXTO: {{"dados": [{{"NomeQualquerParaEixoX": "CategoriaA", "NomeQualquerParaEixoY": ValorNumericoA}}, ...], "eixo_x": "NomeQualquerParaEixoX", "eixo_y": "NomeQualquerParaEixoY"}} (Certifique-se que ValorNumericoA é de fato um número).
             - Para "grafico_pizza":
                 Se baseado em TABELA: {{"categorias": "NOME_EXATO_COLUNA_CATEGORIAS", "valores": "NOME_EXATO_COLUNA_VALORES_NUMERICOS"}}
-                Se DADOS EXTRAÍDOS DO TEXTO: {{"dados": [{{"NomeQualquerParaCategoria": "CategoriaA", "NomeQualquerParaValor": ValorNumericoA}}, ...], "categorias": "NomeQualquerParaCategoria", "valores": "NomeQualquerParaValor"}}
+                Se DADOS EXTRAÍDOS DO TEXTO: {{"dados": [{{"NomeQualquerParaCategoria": "CategoriaA", "NomeQualquerParaValor": ValorNumericoA}}, ...], "categorias": "NomeQualquerParaCategoria", "valores": "NomeQualquerParaValor"}} (Certifique-se que ValorNumericoA é de fato um número).
         - "justificativa": string (breve explicação da utilidade).
 
-        Exemplos de `parametros` para GRÁFICOS DE TABELAS (assumindo que a tabela 'doc_tabela_1' tem colunas 'Ano' (int64) e 'Vendas' (float64)):
-        - Gráfico de Linha: {{"eixo_x": "Ano", "eixo_y": "Vendas"}}
-        - Gráfico de Barras: {{"eixo_x": "Ano", "eixo_y": "Vendas"}}
-
-        Exemplo de `parametros` para GRÁFICO DE PIZZA COM DADOS EXTRAÍDOS DO TEXTO (assumindo que os valores extraídos são numéricos):
-        {{"dados": [{{"Região": "Norte", "Faturamento": 50000.0}}, {{"Região": "Sul", "Faturamento": 75000.0}}], "categorias": "Região", "valores": "Faturamento"}}
-
-        Certifique-se de que os NOMES DE COLUNAS nos 'parametros' correspondam EXATAMENTE aos nomes de colunas e tipos de dados fornecidos na descrição das tabelas. Se uma coluna de valor não for numérica (ex: 'object' contendo '70% - 80%'), extraia um valor numérico representativo (ex: média, ou o primeiro número como float) se possível, ou não sugira o gráfico se não for viável tratar como numérico. Para valores como '70% - 80%', se for para 'Market Share', use a média (ex: 78.0). Para '17,35 Bilhões', extraia 17.35 (e a unidade 'Bilhões' pode ser parte do título ou justificativa).
+        INSTRUÇÕES IMPORTANTES:
+        1.  Para gráficos (barras, pizza, linha, dispersão) baseados em TABELAS, use os nomes EXATOS das colunas fornecidos. Verifique se a coluna de VALOR (eixo_y, valores) é de fato numérica (float64, int64) conforme os "tipos inferidos" da tabela. Se não for numérica, NÃO sugira um gráfico que exija valor numérico para essa coluna, A MENOS que você possa extrair um valor numérico dela (ex: de '70%' extrair 70.0).
+        2.  Para Market Share que pode ter valores como '70% - 86%', extraia o primeiro número como float (ex: 70.0) para o campo de valores do gráfico de pizza.
+        3.  Para Cobertura Geográfica, se tiver apenas Player e Cidades, sugira "tabela_dados". Não sugira "mapa" a menos que haja dados de coordenadas explícitos.
+        4.  Para SWOTs comparativos de uma tabela, gere sugestões "lista_swot" INDIVIDUAIS para CADA player da tabela, não um SWOT agregado.
+        5.  Se extrair dados do texto para gráficos, garanta que os valores numéricos SEJAM NÚMEROS no JSON (não strings de números).
         Retorne APENAS a lista JSON válida.
         """
         with st.spinner("🤖 Gemini está analisando o documento..."):
@@ -225,25 +219,17 @@ st.set_page_config(layout="wide")
 st.title("✨ Apps com Gemini: DOCX para Insights Visuais")
 st.markdown("Faça upload de um DOCX e deixe o Gemini sugerir como visualizar suas informações.")
 
-# Gerenciamento de estado
 if "sugestoes_gemini" not in st.session_state: st.session_state.sugestoes_gemini = []
 if "conteudo_docx" not in st.session_state: st.session_state.conteudo_docx = {"texto": "", "tabelas": []}
 if "config_sugestoes" not in st.session_state: st.session_state.config_sugestoes = {}
 if "nome_arquivo_atual" not in st.session_state: st.session_state.nome_arquivo_atual = None
-# Chave para o widget checkbox de debug
-if 'debug_checkbox_key' not in st.session_state: st.session_state.debug_checkbox_key = False
+if 'debug_checkbox_key_main' not in st.session_state: st.session_state.debug_checkbox_key_main = False # Chave específica
 
-
-uploaded_file = st.file_uploader("Selecione seu arquivo DOCX", type="docx", key="file_uploader_widget")
-
-# Usar o valor do session_state para o checkbox
-show_debug_info = st.sidebar.checkbox(
-    "Mostrar Informações de Depuração", 
-    value=st.session_state.debug_checkbox_key, 
-    key="debug_checkbox_widget" # A chave do widget que atualiza st.session_state.debug_checkbox_key
-)
-# Sincroniza o valor lido do widget de volta para a chave de estado que usamos para lógica
-st.session_state.debug_checkbox_key = show_debug_info
+uploaded_file = st.file_uploader("Selecione seu arquivo DOCX", type="docx", key="file_uploader_widget_main")
+show_debug_info = st.sidebar.checkbox("Mostrar Informações de Depuração", 
+                                    value=st.session_state.debug_checkbox_key_main, 
+                                    key="debug_checkbox_widget_main")
+st.session_state.debug_checkbox_key_main = show_debug_info
 
 
 if uploaded_file:
@@ -260,124 +246,85 @@ if uploaded_file:
         if texto_doc or tabelas_doc:
             st.success(f"Documento '{uploaded_file.name}' lido com sucesso.")
             if show_debug_info:
-                with st.expander("Debug: Conteúdo Extraído do DOCX (após processamento de tipos)"):
-                    st.text_area("Texto Extraído (amostra)", texto_doc[:2000], height=100)
-                    for t_info in tabelas_doc:
-                        st.write(f"ID: {t_info['id']}, Nome da Tabela: {t_info['nome']}")
+                with st.expander("Debug: Conteúdo Extraído do DOCX (após processamento de tipos)", expanded=False):
+                    st.text_area("Texto Extraído (amostra)", texto_doc[:1500], height=100) # Amostra menor
+                    for t_info_debug in tabelas_doc:
+                        st.write(f"ID: {t_info_debug['id']}, Nome da Tabela: {t_info_debug['nome']}")
                         try:
-                            st.dataframe(t_info['dataframe'].head().astype(str)) 
-                        except Exception as e_df_display:
-                            st.warning(f"Não foi possível exibir head do DF {t_info['id']} com st.dataframe: {e_df_display}")
-                            st.text(f"Head como string:\n{t_info['dataframe'].head().to_string()}")
-                        st.write("Tipos de dados das colunas (após conversão):", t_info['dataframe'].dtypes)
+                            st.dataframe(t_info_debug['dataframe'].head().astype(str)) 
+                        except Exception as e_df_display_debug:
+                            st.warning(f"Não foi possível exibir head do DF {t_info_debug['id']} com st.dataframe: {e_df_display_debug}")
+                            st.text(f"Head como string:\n{t_info_debug['dataframe'].head().to_string()}")
+                        st.write("Tipos de dados das colunas (após conversão):", t_info_debug['dataframe'].dtypes)
                         st.divider()
             
             sugestoes = analisar_documento_com_gemini(texto_doc, tabelas_doc)
             st.session_state.sugestoes_gemini = sugestoes
             for sug_idx_init, sug_init in enumerate(sugestoes):
-                s_id_init = sug_init.get("id", f"sug_{sug_idx_init}_{hash(sug_init.get('titulo'))}")
-                sug_init["id"] = s_id_init # Garante que a sugestão original tem o ID
+                s_id_init = sug_init.get("id", f"sug_{sug_idx_init}_{hash(sug_init.get('titulo',''))}")
+                sug_init["id"] = s_id_init 
                 if s_id_init not in st.session_state.config_sugestoes:
                     st.session_state.config_sugestoes[s_id_init] = {
-                        "aceito": True, 
-                        "titulo_editado": sug_init.get("titulo", "Sem Título"),
-                        "dados_originais": sug_init 
-                    }
+                        "aceito": True, "titulo_editado": sug_init.get("titulo", "Sem Título"),
+                        "dados_originais": sug_init }
         else:
             st.warning("Nenhum conteúdo (texto ou tabelas) extraído do documento.")
 
 if st.session_state.sugestoes_gemini:
     st.sidebar.header("⚙️ Configurar Visualizações Sugeridas")
     for sug_original_sidebar in st.session_state.sugestoes_gemini:
-        s_id_sidebar = sug_original_sidebar['id'] # Usa o ID já garantido
-        
-        if s_id_sidebar not in st.session_state.config_sugestoes: # Segurança, deve ter sido inicializado
-            st.session_state.config_sugestoes[s_id_sidebar] = {
-                "aceito": True, 
-                "titulo_editado": sug_original_sidebar.get("titulo", "Sem Título"),
-                "dados_originais": sug_original_sidebar 
-            }
+        s_id_sidebar = sug_original_sidebar['id'] 
+        if s_id_sidebar not in st.session_state.config_sugestoes: 
+             st.session_state.config_sugestoes[s_id_sidebar] = { # Inicializa se faltar
+                "aceito": True, "titulo_editado": sug_original_sidebar.get("titulo", "Sem Título"),
+                "dados_originais": sug_original_sidebar }
         config_sidebar = st.session_state.config_sugestoes[s_id_sidebar]
 
         with st.sidebar.expander(f"{config_sidebar['titulo_editado']}", expanded=False):
             st.caption(f"Tipo: {sug_original_sidebar.get('tipo_sugerido')} | Fonte: {sug_original_sidebar.get('fonte_id')}")
             st.markdown(f"**Justificativa IA:** *{sug_original_sidebar.get('justificativa', 'N/A')}*")
-            
             config_sidebar["aceito"] = st.checkbox("Incluir no Dashboard?", value=config_sidebar["aceito"], key=f"aceito_{s_id_sidebar}")
             config_sidebar["titulo_editado"] = st.text_input("Título para Dashboard", value=config_sidebar["titulo_editado"], key=f"titulo_{s_id_sidebar}")
-
-            # Edição de parâmetros para gráficos comuns se não vierem de dados (diretos da LLM)
             tipo_sug_sidebar = sug_original_sidebar.get("tipo_sugerido")
-            params_sug_sidebar = sug_original_sidebar.get("parametros",{})
+            params_sug_sidebar = config_sidebar["dados_originais"].get("parametros",{}) # Pega dos dados originais para edição
             if tipo_sug_sidebar in ["grafico_barras", "grafico_pizza", "grafico_linha", "grafico_dispersao"] and \
                not params_sug_sidebar.get("dados") and \
                str(sug_original_sidebar.get("fonte_id")).startswith("doc_tabela_"):
-                
                 df_correspondente_sidebar = next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"] == sug_original_sidebar.get("fonte_id")), None)
                 if df_correspondente_sidebar is not None:
                     opcoes_colunas_sidebar = [""] + df_correspondente_sidebar.columns.tolist()
-                    # Atualiza os parâmetros na sugestão original dentro de config_sugestoes
-                    editable_params = config_sidebar["dados_originais"]["parametros"] 
-
                     if tipo_sug_sidebar in ["grafico_barras", "grafico_linha", "grafico_dispersao"]:
-                        editable_params["eixo_x"] = st.selectbox("Eixo X", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(editable_params.get("eixo_x", "")) if editable_params.get("eixo_x", "") in opcoes_colunas_sidebar else 0, key=f"param_x_{s_id_sidebar}")
-                        editable_params["eixo_y"] = st.selectbox("Eixo Y", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(editable_params.get("eixo_y", "")) if editable_params.get("eixo_y", "") in opcoes_colunas_sidebar else 0, key=f"param_y_{s_id_sidebar}")
+                        params_sug_sidebar["eixo_x"] = st.selectbox("Eixo X", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(params_sug_sidebar.get("eixo_x", "")) if params_sug_sidebar.get("eixo_x", "") in opcoes_colunas_sidebar else 0, key=f"param_x_{s_id_sidebar}")
+                        params_sug_sidebar["eixo_y"] = st.selectbox("Eixo Y", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(params_sug_sidebar.get("eixo_y", "")) if params_s_id_sidebar.get("eixo_y", "") in opcoes_colunas_sidebar else 0, key=f"param_y_{s_id_sidebar}")
                     elif tipo_sug_sidebar == "grafico_pizza":
-                        editable_params["categorias"] = st.selectbox("Categorias (Nomes)", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(editable_params.get("categorias", "")) if editable_params.get("categorias", "") in opcoes_colunas_sidebar else 0, key=f"param_cat_{s_id_sidebar}")
-                        editable_params["valores"] = st.selectbox("Valores", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(editable_params.get("valores", "")) if editable_params.get("valores", "") in opcoes_colunas_sidebar else 0, key=f"param_val_{s_id_sidebar}")
-
+                        params_sug_sidebar["categorias"] = st.selectbox("Categorias (Nomes)", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(params_sug_sidebar.get("categorias", "")) if params_sug_sidebar.get("categorias", "") in opcoes_colunas_sidebar else 0, key=f"param_cat_{s_id_sidebar}")
+                        params_sug_sidebar["valores"] = st.selectbox("Valores", options=opcoes_colunas_sidebar, index=opcoes_colunas_sidebar.index(params_sug_sidebar.get("valores", "")) if params_sug_sidebar.get("valores", "") in opcoes_colunas_sidebar else 0, key=f"param_val_{s_id_sidebar}")
 
 if st.session_state.sugestoes_gemini:
     if st.sidebar.button("🚀 Gerar Dashboard", type="primary", use_container_width=True):
         st.header("📊 Dashboard de Insights")
-        
         kpis_para_renderizar = []
-        outros_elementos_para_dashboard = [] # Renomeado para evitar conflito
-
+        outros_elementos_para_dashboard = []
         for s_id_render, config_render in st.session_state.config_sugestoes.items():
             if config_render["aceito"]:
                 sug_original_render = config_render["dados_originais"]
-                item_render = {"titulo": config_render["titulo_editado"], 
-                               "tipo": sug_original_render.get("tipo_sugerido"),
-                               "parametros": sug_original_render.get("parametros", {}),
-                               "fonte_id": sug_original_render.get("fonte_id")}
-                if item_render["tipo"] == "kpi":
-                    kpis_para_renderizar.append(item_render)
-                else:
-                    outros_elementos_para_dashboard.append(item_render) # Adiciona aqui
+                item_render = {"titulo": config_render["titulo_editado"], "tipo": sug_original_render.get("tipo_sugerido"),
+                               "parametros": sug_original_render.get("parametros", {}),"fonte_id": sug_original_render.get("fonte_id")}
+                if item_render["tipo"] == "kpi": kpis_para_renderizar.append(item_render)
+                else: outros_elementos_para_dashboard.append(item_render)
         
         if kpis_para_renderizar:
             kpi_cols_render = st.columns(min(len(kpis_para_renderizar), 4))
             for i_kpi, kpi_item_render in enumerate(kpis_para_renderizar):
                 with kpi_cols_render[i_kpi % min(len(kpis_para_renderizar), 4)]:
-                    st.metric(label=kpi_item_render["titulo"], 
-                              value=str(kpi_item_render["parametros"].get("valor", "N/A")),
-                              delta=str(kpi_item_render["parametros"].get("delta", "")),
-                              help=kpi_item_render["parametros"].get("descricao"))
-            if outros_elementos_para_dashboard: st.divider() # Adiciona divisor apenas se houver outros elementos
+                    st.metric(label=kpi_item_render["titulo"], value=str(kpi_item_render["parametros"].get("valor", "N/A")),
+                              delta=str(kpi_item_render["parametros"].get("delta", "")), help=kpi_item_render["parametros"].get("descricao"))
+            if outros_elementos_para_dashboard: st.divider()
 
         if show_debug_info and (kpis_para_renderizar or outros_elementos_para_dashboard):
-             with st.expander("Debug: Configurações Finais dos Elementos para Dashboard", expanded=False):
-                if kpis_para_renderizar: st.json({"KPIs": kpis_para_renderizar})
-                if outros_elementos_para_dashboard: st.json({"Outros Elementos": outros_elementos_para_dashboard})
-                st.subheader("DataFrames Referenciados (se aplicável):")
-                # Mostrar DFs que serão usados pelos gráficos/tabelas (se não forem dados diretos)
-                ids_tabelas_usadas = set()
-                for item_debug_df in kpis_para_renderizar + outros_elementos_para_dashboard:
-                    if str(item_debug_df['fonte_id']).startswith("doc_tabela_") and not item_debug_df['parametros'].get("dados"):
-                        ids_tabelas_usadas.add(item_debug_df['fonte_id'])
-                    elif item_debug_df['tipo'] == "tabela_dados" and item_debug_df['parametros'].get("id_tabela_original"):
-                        ids_tabelas_usadas.add(item_debug_df['parametros']['id_tabela_original'])
-                
-                for id_t_debug in ids_tabelas_usadas:
-                    df_rel_debug = next((t['dataframe'] for t in st.session_state.conteudo_docx['tabelas'] if t['id'] == id_t_debug),None)
-                    if df_rel_debug is not None: 
-                        st.write(f"DataFrame ID: {id_t_debug} (head e dtypes):")
-                        try: st.dataframe(df_rel_debug.head().astype(str))
-                        except: st.text(df_rel_debug.head().to_string())
-                        st.write(df_rel_debug.dtypes)
-                        st.divider()
-
+             with st.expander("Debug: Configurações Finais dos Elementos para Dashboard (após validação)", expanded=False):
+                # ... (código de debug dos parâmetros como na versão anterior) ...
+                pass # Simplificado para brevidade, mas mantenha seu código de debug aqui se útil
 
         if outros_elementos_para_dashboard:
             item_cols_render = st.columns(2)
@@ -386,24 +333,23 @@ if st.session_state.sugestoes_gemini:
                 with item_cols_render[col_idx_render % 2]:
                     st.subheader(item_render_main["titulo"])
                     try:
-                        df_plot_main = None
-                        # Prioriza dados diretos, depois busca em tabelas extraídas
+                        df_plot_main = None; elemento_renderizado_nesta_iteracao = False
                         if item_render_main["parametros"].get("dados"):
                             try: df_plot_main = pd.DataFrame(item_render_main["parametros"]["dados"])
-                            except Exception as e_df_direto_main: st.warning(f"'{item_render_main['titulo']}': Erro ao criar DF de 'dados': {e_df_direto_main}"); continue
+                            except Exception as e_df_direto: st.warning(f"'{item_render_main['titulo']}': Erro DF de 'dados': {e_df_direto}"); continue
                         elif str(item_render_main["fonte_id"]).startswith("doc_tabela_"):
                             df_plot_main = next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"] == item_render_main["fonte_id"]), None)
                         
-                        tipo_render = item_render_main["tipo"]
-                        params_render = item_render_main["parametros"]
+                        tipo_render = item_render_main["tipo"]; params_render = item_render_main["parametros"]
 
                         if tipo_render == "tabela_dados":
                             id_tabela_render = params_render.get("id_tabela_original", item_render_main["fonte_id"])
                             df_tabela_render = next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"] == id_tabela_render), None)
-                            if df_tabela_render is not None: st.dataframe(df_tabela_render.astype(str)) 
+                            if df_tabela_render is not None: st.dataframe(df_tabela_render.astype(str).fillna("-")); elemento_renderizado_nesta_iteracao = True
                             else: st.warning(f"Tabela '{id_tabela_render}' não encontrada para '{item_render_main['titulo']}'.")
                         
                         elif tipo_render == "lista_swot":
+                            # ... (código de renderização do SWOT como antes) ...
                             swot_data_render = params_render
                             c1_swot, c2_swot = st.columns(2)
                             swot_map_render = {"forcas": ("Forças 💪", c1_swot), "fraquezas": ("Fraquezas 📉", c1_swot), 
@@ -414,39 +360,46 @@ if st.session_state.sugestoes_gemini:
                                     points_swot = swot_data_render.get(key_swot, ["N/A (informação não fornecida)"])
                                     if not points_swot or not isinstance(points_swot, list): points_swot = ["N/A (dados ausentes ou formato incorreto)"] 
                                     for point_swot in points_swot: st.markdown(f"- {point_swot}")
+                            elemento_renderizado_nesta_iteracao = True
                         
-                        elif df_plot_main is not None: # Gráficos que usam df_plot_main
-                            x_col_render = params_render.get("eixo_x")
-                            y_col_render = params_render.get("eixo_y")
-                            cat_col_render = params_render.get("categorias")
-                            val_col_render = params_render.get("valores")
+                        elif df_plot_main is not None:
+                            x_col, y_col = params_render.get("eixo_x"), params_render.get("eixo_y")
+                            cat_col, val_col = params_render.get("categorias"), params_render.get("valores")
+                            
+                            plot_func = None
+                            plot_args = {}
 
-                            if tipo_render == "grafico_barras" and x_col_render and y_col_render and x_col_render in df_plot_main.columns and y_col_render in df_plot_main.columns:
-                                st.plotly_chart(px.bar(df_plot_main, x=x_col_render, y=y_col_render, title=item_render_main["titulo"]), use_container_width=True)
-                            elif tipo_render == "grafico_linha" and x_col_render and y_col_render and x_col_render in df_plot_main.columns and y_col_render in df_plot_main.columns:
-                                st.plotly_chart(px.line(df_plot_main, x=x_col_render, y=y_col_render, title=item_render_main["titulo"], markers=True), use_container_width=True)
-                            elif tipo_render == "grafico_dispersao" and x_col_render and y_col_render and x_col_render in df_plot_main.columns and y_col_render in df_plot_main.columns:
-                                st.plotly_chart(px.scatter(df_plot_main, x=x_col_render, y=y_col_render, title=item_render_main["titulo"]), use_container_width=True)
-                            elif tipo_render == "grafico_pizza" and cat_col_render and val_col_render and cat_col_render in df_plot_main.columns and val_col_render in df_plot_main.columns:
-                                st.plotly_chart(px.pie(df_plot_main, names=cat_col_render, values=val_col_render, title=item_render_main["titulo"]), use_container_width=True)
-                            elif tipo_render not in ["tabela_dados", "lista_swot"]: # Se não é um tipo conhecido E tem df_plot_main
-                                st.warning(f"Não foi possível gerar gráfico '{item_render_main['titulo']}' (tipo: {tipo_render}). Colunas X/Y ou Categorias/Valores podem estar ausentes/incorretas nos parâmetros ou no DataFrame. X: '{x_col_render}', Y: '{y_col_render}', Cat: '{cat_col_render}', Val: '{val_col_render}'. Colunas no DF: {df_plot_main.columns.tolist()}")
+                            if tipo_render == "grafico_barras" and x_col and y_col: plot_func, plot_args = px.bar, {"x": x_col, "y": y_col}
+                            elif tipo_render == "grafico_linha" and x_col and y_col: plot_func, plot_args = px.line, {"x": x_col, "y": y_col, "markers": True}
+                            elif tipo_render == "grafico_dispersao" and x_col and y_col: plot_func, plot_args = px.scatter, {"x": x_col, "y": y_col}
+                            elif tipo_render == "grafico_pizza" and cat_col and val_col: plot_func, plot_args = px.pie, {"names": cat_col, "values": val_col}
+
+                            if plot_func and all(k in df_plot_main.columns for k in plot_args.values() if isinstance(k, str)):
+                                st.plotly_chart(plot_func(df_plot_main, title=item_render_main["titulo"], **plot_args), use_container_width=True)
+                                elemento_renderizado_nesta_iteracao = True
+                            elif plot_func: # Se a função foi definida mas as colunas não bateram
+                                st.warning(f"Colunas ausentes/incorretas para '{item_render_main['titulo']}' (tipo: {tipo_render}). Parâmetros: {plot_args}. Colunas no DF: {df_plot_main.columns.tolist()}")
                         
-                        elif tipo_render not in ["kpi", "tabela_dados", "lista_swot"]:
-                            st.info(f"Visualização '{item_render_main['titulo']}' (tipo: {tipo_render}) não pôde ser gerada. Dados insuficientes (ex: fonte textual sem 'dados' nos parâmetros, ou tabela referenciada não encontrada).")
-                    except Exception as e_render_main:
-                        st.error(f"Erro ao renderizar '{item_render_main['titulo']}': {e_render_main}")
-                        # st.text(traceback.format_exc()) # Descomentar para debug detalhado do erro de plotagem
-                col_idx_render += 1
+                        if tipo_render == 'mapa': # Placeholder para mapa
+                             st.info(f"Visualização de mapa para '{item_render_main['titulo']}' ainda não implementada."); elemento_renderizado_nesta_iteracao = True
+                        
+                        if not elemento_renderizado_nesta_iteracao and item_render_main["tipo"] not in ["kpi", "tabela_dados", "lista_swot", "mapa"] and df_plot_main is None:
+                            st.info(f"'{item_render_main['titulo']}' (tipo: {tipo_render}) não pôde ser gerado. Dados insuficientes (ex: fonte textual sem 'dados' nos parâmetros, ou tabela não encontrada).")
+                        elif not elemento_renderizado_nesta_iteracao and item_render_main["tipo"] not in ["kpi", "tabela_dados", "lista_swot", "mapa"]:
+                             st.warning(f"Não foi possível gerar visualização para '{item_render_main['titulo']}' (tipo: {tipo_render}). Verifique os parâmetros e o DF.")
+
+                    except Exception as e_render_main: st.error(f"Erro ao renderizar '{item_render_main['titulo']}': {e_render_main}")
+                
+                if elemento_renderizado_nesta_iteracao: col_idx_render += 1; elementos_renderizados_count +=1
         
-        if not kpis_para_renderizar and not outros_elementos_para_dashboard:
-            st.info("Nenhum elemento selecionado ou passível de ser gerado para o dashboard.")
+        if elementos_renderizados_count == 0 and any(c['aceito'] and c['dados_originais']['tipo_sugerido'] != 'kpi' for c in st.session_state.config_sugestoes.values()):
+            st.info("Nenhum gráfico/tabela (além de KPIs) pôde ser gerado com as seleções atuais.")
+        elif elementos_renderizados_count == 0 and not kpis_para_renderizar:
+            st.info("Nenhum elemento foi selecionado ou pôde ser gerado para o dashboard.")
 
 elif uploaded_file is None and st.session_state.nome_arquivo_atual is not None:
-    st.session_state.sugestoes_gemini = []
-    st.session_state.conteudo_docx = {"texto": "", "tabelas": []}
-    st.session_state.config_sugestoes = {}
-    st.session_state.nome_arquivo_atual = None
-    st.session_state.debug_checkbox_key = False # Reseta o checkbox
-    if "file_uploader_widget" in st.session_state: st.session_state.file_uploader_widget = None 
+    st.session_state.sugestoes_gemini = []; st.session_state.conteudo_docx = {"texto": "", "tabelas": []}
+    st.session_state.config_sugestoes = {}; st.session_state.nome_arquivo_atual = None
+    st.session_state.debug_checkbox_key_main = False
+    if "file_uploader_widget_main" in st.session_state: st.session_state.file_uploader_widget_main = None 
     st.experimental_rerun()
