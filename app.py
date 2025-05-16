@@ -33,7 +33,6 @@ def parse_value_for_numeric(val_str_in):
     return None
 
 def extrair_conteudo_docx(uploaded_file):
-    # ... (Função extrair_conteudo_docx permanece a mesma da última versão - sem alterações aqui) ...
     try:
         document = Document(uploaded_file)
         textos = [p.text for p in document.paragraphs if p.text.strip()]
@@ -82,9 +81,7 @@ def extrair_conteudo_docx(uploaded_file):
         st.error(f"Erro crítico ao ler DOCX: {e_doc_read}")
         return "", []
 
-
 def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
-    # ... (Função analisar_documento_com_gemini permanece a mesma da última versão - sem alterações aqui) ...
     api_key = get_gemini_api_key()
     if not api_key: st.warning("Chave API Gemini não configurada."); return []
     try:
@@ -141,7 +138,6 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
     except Exception as e: st.error(f"Erro API Gemini: {e}"); st.text(traceback.format_exc()); return []
 
 def render_kpis(kpi_sugestoes):
-    # ... (Função render_kpis permanece a mesma) ...
     if kpi_sugestoes:
         num_kpis = len(kpi_sugestoes); kpi_cols = st.columns(min(num_kpis, 4)) 
         for i, kpi_sug in enumerate(kpi_sugestoes):
@@ -150,9 +146,7 @@ def render_kpis(kpi_sugestoes):
                 st.metric(label=kpi_sug.get("titulo","KPI"),value=str(params.get("valor","N/A")),delta=delta_val if delta_val else None,help=params.get("descricao"))
         st.divider()
 
-
 def render_swot_card(titulo_completo_swot, swot_data, card_key_prefix=""):
-    # ... (Função render_swot_card permanece a mesma) ...
     st.subheader(f"{titulo_completo_swot}") 
     col1, col2 = st.columns(2)
     swot_map = {"forcas": ("Forças 💪", col1), "fraquezas": ("Fraquezas 📉", col1), 
@@ -168,9 +162,7 @@ def render_swot_card(titulo_completo_swot, swot_data, card_key_prefix=""):
                 st.markdown(f"<div style='margin-bottom: 5px;'>- {item_swot_render}</div>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
-
 def render_plotly_chart(item_config, df_plot_input):
-    # ... (Função render_plotly_chart permanece a mesma) ...
     if df_plot_input is None:
         st.warning(f"Dados não disponíveis para o gráfico '{item_config.get('titulo', 'Sem Título')}'.")
         return False
@@ -214,9 +206,9 @@ for k, dv in [("s_gemini",[]),("cfg_sugs",{}),("doc_ctx",{"texto":"","tabelas":[
     st.session_state.setdefault(k, dv)
 
 st.sidebar.title("✨ Navegação"); pg_opts_sb = ["Dashboard Principal","Análise SWOT Detalhada"]
-st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v4")
-st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v4")
-st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.session_state.dbg_cb_key,key="debug_cb_sidebar_final_v4")
+st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v5") # Chave única para o widget
+st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v5") # Chave única
+st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.session_state.dbg_cb_key,key="debug_cb_sidebar_final_v5") # Chave única
 
 if uploaded_file_sb:
     if st.session_state.f_name!=uploaded_file_sb.name: 
@@ -265,18 +257,18 @@ if st.session_state.pg_sel=="Dashboard Principal":
         
         render_kpis(kpis_r)
         
-        if st.session_state.dbg_cb_key: # Acessa o valor do session_state diretamente
+        if st.session_state.dbg_cb_key: 
              with st.expander("Debug: Elementos para Dashboard Principal (Não-KPI)",expanded=True): 
                 st.json({"Outros Elementos (Configurados e Aceitos)": outros_r}, expanded=False)
         
         elementos_renderizados_dash = 0 
-        col_idx_dash = 0 
+        col_idx_dash = 0 # Inicializa idx_main_dash (ou col_idx_f como era antes) AQUI
+
         if outros_r:
             item_cols_main_dash = st.columns(2)
             for item_render_loop in outros_r:
                 if item_render_loop.get("tipo_sugerido") == "lista_swot": continue 
                 
-                # Inicializa el_rend_d para cada item do loop
                 el_rend_d = False 
                 with item_cols_main_dash[col_idx_dash % 2]: 
                     df_plot_loop = None 
@@ -306,7 +298,7 @@ if st.session_state.pg_sel=="Dashboard Principal":
                             
                             if df_tbl_loop is not None: 
                                 try: st.dataframe(df_tbl_loop.astype(str).fillna("-"))
-                                except Exception: st.text(df_tbl_loop.to_string(na_rep='-')); 
+                                except: st.text(df_tbl_loop.to_string(na_rep='-')); 
                                 el_rend_d=True
                             else: st.warning(f"Tabela '{titulo_loop}' (Fonte: {fonte_loop}) não encontrada.")
                         
@@ -323,48 +315,55 @@ if st.session_state.pg_sel=="Dashboard Principal":
                         st.error(f"Erro renderizando '{titulo_loop}': {e_render_loop}")
                 
                 if el_rend_d: 
-                    col_idx_dash += 1 # Corrigido de idx_main_dash para col_idx_dash
-                    elementos_renderizados_dash += 1 # Corrigido de elementos_renderizados_count para elementos_renderizados_dash
+                    col_idx_dash += 1 # Usa a variável inicializada
+                    elementos_renderizados_dash += 1 
             
             if elementos_renderizados_dash == 0 and any(c['aceito'] and c['dados_originais'].get('tipo_sugerido') not in ['kpi','lista_swot'] for c in st.session_state.cfg_sugs.values()):
                 st.info("Nenhum gráfico/tabela (além de KPIs/SWOTs) pôde ser gerado para o Dashboard Principal.")
         
-        elif not kpis_r and not uploaded_file_sidebar: pass 
-        elif not kpis_r and not outros_r and uploaded_file_sidebar and st.session_state.s_gemini: 
+        elif not kpis_r and not uploaded_file_sb: pass 
+        elif not kpis_r and not outros_r and uploaded_file_sb and st.session_state.s_gemini: 
             st.info("Nenhum elemento selecionado ou gerado para o dashboard principal.")
 
 elif st.session_state.pg_sel=="Análise SWOT Detalhada":
     st.title("🔬 Análise SWOT Detalhada")
-    if not uploaded_file_sidebar: st.warning("Upload DOCX na barra lateral.")
+    if not uploaded_file_sb: st.warning("Upload DOCX na barra lateral.")
     elif not st.session_state.s_gemini: st.info("Aguardando processamento/sugestões.")
     else:
         swot_sugs_page_render=[s_cfg_swot["dados_originais"] for s_id_swot,s_cfg_swot in st.session_state.cfg_sugs.items() if s_cfg_swot["aceito"] and s_cfg_swot["dados_originais"].get("tipo_sugerido")=="lista_swot"]
         if not swot_sugs_page_render: st.info("Nenhuma análise SWOT sugerida/selecionada.")
         else:
-            if show_debug_info_sidebar:
+            if show_debug_info_sidebar: # Usa a variável correta do checkbox
                 with st.expander("Debug: Dados para Análise SWOT (Página Dedicada)",expanded=False):st.json({"SWOTs Selecionados":swot_sugs_page_render})
             for swot_item_render_page in swot_sugs_page_render:
                 render_swot_card(swot_item_render_page.get("titulo","SWOT"),swot_item_render_page.get("parametros",{}), card_key_prefix=swot_item_render_page.get("id","swot_pg_def"))
 
-if uploaded_file_sidebar is None and st.session_state.f_name is not None:
-    keys_to_preserve_on_clear = [
-        "nav_radio_key_final_v4", 
-        "uploader_sidebar_key_final_v4", 
-        "debug_cb_sidebar_key_final_v4"
+if uploaded_file_sb is None and st.session_state.f_name is not None:
+    keys_to_clear_on_remove = list(st.session_state.keys())
+    # Lista de chaves de widgets que você quer preservar. Adapte conforme as chaves únicas que você usou.
+    preserved_widget_keys_on_remove = [
+        "nav_radio_key_final_v5", # Chave do widget de navegação
+        "uploader_sidebar_key_final_v5", # Chave do file_uploader
+        "debug_cb_sidebar_key_final_v5"  # Chave do checkbox de debug
     ] 
-    for sug_key_cfg_sb_clear in st.session_state.get("s_gemini", []):
-        s_id_preserve_val_sb_clear = sug_key_cfg_sb_clear.get('id')
-        if s_id_preserve_val_sb_clear:
-            keys_to_preserve_on_clear.extend([f"acc_cfg_{s_id_preserve_val_sb_clear}", f"tit_cfg_{s_id_preserve_val_sb_clear}"])
+    # Adiciona chaves dos widgets da sidebar de configuração dinamicamente
+    if "s_gemini" in st.session_state: # Verifica se sugestoes_gemini existe
+        for sug_key_cfg_clear in st.session_state.s_gemini:
+            s_id_preserve_val_clear = sug_key_cfg_clear.get('id')
+            if s_id_preserve_val_clear:
+                preserved_widget_keys_on_remove.extend([f"acc_loop_{s_id_preserve_val_clear}", f"tit_loop_{s_id_preserve_val_clear}"])
+                # Adicione aqui outras chaves de selectbox da sidebar se elas forem dinâmicas também
+                # Ex: f"px_sb_{s_id_preserve_val_clear}", f"py_sb_{s_id_preserve_val_clear}", etc.
             
-    current_keys_on_clear_main = list(st.session_state.keys())
-    for key_cl_main_loop in current_keys_on_clear_main:
-        if key_cl_main_loop not in keys_to_preserve_on_clear:
-            if key_cl_main_loop in st.session_state: del st.session_state[key_cl_main_loop]
+    for key_cl_remove in keys_to_clear_on_remove:
+        if key_cl_remove not in preserved_widget_keys_on_remove:
+            if key_cl_remove in st.session_state: # Verifica se a chave ainda existe antes de deletar
+                del st.session_state[key_cl_remove]
     
+    # Re-inicializa os estados principais da aplicação para um novo ciclo
     for k_reinit_main, dv_reinit_main in [("s_gemini",[]),("cfg_sugs",{}),
                                 ("doc_ctx",{"texto":"","tabelas":[]}),
-                                ("f_name",None),("dbg_cb_key",False), 
+                                ("f_name",None),("dbg_cb_key",False), # Usa a chave correta
                                 ("pg_sel","Dashboard Principal")]:
-        st.session_state.setdefault(k_reinit_main, dv_reinit_main)
+        st.session_state.setdefault(k_reinit_main, dv_reinit_main) # Usa setdefault para não sobrescrever se já existir por widgets
     st.experimental_rerun()
