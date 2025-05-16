@@ -1,3 +1,14 @@
+import streamlit as st # <--- MOVA ESTA LINHA PARA O TOPO
+from docx import Document
+import pandas as pd
+import plotly.express as px
+import google.generativeai as genai
+import json
+import os
+import traceback
+import re 
+
+
 # --- 3. Interface Streamlit Principal ---
 st.set_page_config(layout="wide", page_title="Gemini DOCX Insights")
 
