@@ -17,25 +17,16 @@ def get_gemini_api_key():
 def parse_value_for_numeric(val_str_in):
     if pd.isna(val_str_in) or str(val_str_in).strip() == '': return None
     text = str(val_str_in).strip()
-    
-    # Trata intervalos como "70 - 86" ou "12 - 23", pegando o primeiro número
     interval_match = re.match(r"([-+]?\d*\.?\d+|\d+)\s*-\s*([-+]?\d*\.?\d+|\d+)", text)
     if interval_match:
-        try: return float(interval_match.group(1).replace(',', '.')) # Pega o primeiro número do intervalo
-        except: pass # Continua para outras lógicas se o parsing do intervalo falhar
-
-    # Limpeza geral: remove R$, $, %, espaços internos, mas mantém sinal - no início
-    # e trata . como milhar se vírgula for decimal, ou vírgula como decimal.
+        try: return float(interval_match.group(1).replace(',', '.'))
+        except: pass
     text_num_part = re.sub(r'[R$\s%]', '', text)
-    
-    if ',' in text_num_part and '.' in text_num_part: # Ex: 1.234,56
+    if ',' in text_num_part and '.' in text_num_part:
         text_num_part = text_num_part.replace('.', '') 
         text_num_part = text_num_part.replace(',', '.') 
-    elif ',' in text_num_part: # Ex: 1234,56
+    elif ',' in text_num_part:
         text_num_part = text_num_part.replace(',', '.')
-    # Se só tem ponto, assume que é decimal: 1234.56 (já está ok)
-
-    # Tenta pegar apenas o primeiro número encontrado
     match = re.search(r"([-+]?\d*\.?\d+|\d+)", text_num_part)
     if match:
         try: return float(match.group(1))
@@ -64,20 +55,22 @@ def extrair_conteudo_docx(uploaded_file):
                 for col in df.columns:
                     original_series = df[col].copy()
                     num_series = original_series.astype(str).apply(parse_value_for_numeric)
-                    if num_series.notna().sum() / max(1, len(num_series)) > 0.3: # Evita divisão por zero
+                    if num_series.notna().sum() / max(1, len(num_series)) > 0.3:
                         df[col] = pd.to_numeric(num_series, errors='coerce')
                         continue
                     else: df[col] = original_series 
                     try:
                         temp_str_col = df[col].astype(str)
-                        dt_series = pd.to_datetime(temp_str_col, errors='coerce', dayfirst=True) # Tenta dayfirst=True para formatos dd/mm/yyyy
+                        # Nota: infer_datetime_format=True é depreciado e o comportamento padrão agora é similar.
+                        # A remoção explícita evita o UserWarning.
+                        dt_series = pd.to_datetime(temp_str_col, errors='coerce', dayfirst=True) 
                         if dt_series.notna().sum() / max(1, len(dt_series)) > 0.5:
                             df[col] = dt_series
-                        else: # Reverte se a conversão de data falhou muito
+                        else: 
                             df[col] = original_series.astype(str).fillna('')
                     except: df[col] = original_series.astype(str).fillna('')
                 for col in df.columns:
-                    if df[col].dtype == 'object': df[col] = df[col].astype(str).fillna('') # Garante string p/ Arrow
+                    if df[col].dtype == 'object': df[col] = df[col].astype(str).fillna('')
                 tabelas_data.append({"id": f"doc_tabela_{i+1}", "nome": nome_tabela, "dataframe": df})
         return "\n\n".join(textos), tabelas_data
     except Exception as e: st.error(f"Erro crítico ao ler DOCX: {e}"); return "", []
@@ -94,7 +87,7 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
             df, nome_t, id_t = t_info["dataframe"], t_info["nome"], t_info["id"]
             sample_df = df.head(5).iloc[:, :min(8, len(df.columns))]
             md_table = sample_df.to_markdown(index=False)
-            col_types = ", ".join([f"'{c}' (tipo: {str(d)})" for c,d in df.dtypes.items()]) # Usar df.dtypes para tipos pós-processamento
+            col_types = ", ".join([f"'{c}' (tipo: {str(d)})" for c,d in df.dtypes.items()])
             tabelas_prompt_str += f"\n--- Tabela '{nome_t}' (ID: {id_t}) ---\nColunas e tipos: {col_types}\nAmostra:\n{md_table}\n"
         text_limit = 50000
         prompt_text = texto_doc[:text_limit] + ("\n[TEXTO TRUNCADO]" if len(texto_doc) > text_limit else "")
@@ -107,16 +100,15 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
         Para "parametros":
         - "kpi": {{"valor": "ValorKPI", "delta": "Mudança", "descricao": "Contexto"}}
         - "tabela_dados": Para TABELA EXISTENTE: {{"id_tabela_original": "ID_Tabela"}}. Para DADOS DO TEXTO: {{"dados": [{{"Coluna1": "ValorA1", "Coluna2": "ValorA2"}}, ...], "colunas_titulo": ["Título Col1", "Título Col2"]}}
-        - "lista_swot": {{"forcas": ["F1"], "fraquezas": ["Fr1"], "oportunidades": ["Op1"], "ameacas": ["Am1"]}} (Assegure que cada categoria tenha uma lista de strings).
-        - Gráficos de TABELA ("barras", "linha", "dispersao"): {{"eixo_x": "NOME_COL_X", "eixo_y": "NOME_COL_Y"}} (Y numérico, use nomes exatos de colunas).
+        - "lista_swot": {{"forcas": ["F1"], "fraquezas": ["Fr1"], "oportunidades": ["Op1"], "ameacas": ["Am1"]}} (Listas de strings).
+        - Gráficos de TABELA ("barras", "linha", "dispersao"): {{"eixo_x": "NOME_COL_X", "eixo_y": "NOME_COL_Y"}} (Y numérico, use nomes exatos).
         - Gráficos de PIZZA de TABELA: {{"categorias": "NOME_COL_CAT", "valores": "NOME_COL_VAL_NUM"}} (Valores numéricos, use nomes exatos).
-        - Gráficos com DADOS EXTRAÍDOS DO TEXTO: {{"dados": [{{"NomeEixoX": "CatA", "NomeEixoY": ValNumA}}, ...], "eixo_x": "NomeEixoX", "eixo_y": "NomeEixoY"}} (Valores DEVEM ser numéricos, não strings de números).
+        - Gráficos com DADOS EXTRAÍDOS DO TEXTO: {{"dados": [{{"NomeEixoX": "CatA", "NomeEixoY": ValNumA}}, ...], "eixo_x": "NomeEixoX", "eixo_y": "NomeEixoY"}} (Valores DEVEM ser numéricos).
         
         INSTRUÇÕES CRÍTICAS:
-        1.  NOMES DE COLUNAS: Para gráficos de TABELA, use os NOMES EXATOS das colunas como fornecidos nos "Colunas e tipos".
-        2.  DADOS NUMÉRICOS: Se a coluna de valor de uma TABELA não for numérica (float64/int64) conforme os "tipos inferidos", NÃO sugira um gráfico que exija valor numérico para ela, A MENOS que você possa confiavelmente extrair um valor numérico do seu conteúdo textual (ex: de '70%' extrair 70.0; de '70% - 86%' extrair 70.0 ou 78.0; de 'R$ 15,5 Bilhões' extrair 15.5 e indicar 'Bilhões' na justificativa ou título). Se extrair do texto, coloque em "dados".
-        3.  COBERTURA GEOGRÁFICA: Se for apenas lista de Players/Cidades, sugira "tabela_dados" e forneça os dados extraídos no campo "dados" dos "parametros".
-        4.  SWOT COMPARATIVO: Se uma tabela compara SWOTs, gere "lista_swot" INDIVIDUAL para CADA player da tabela.
+        1.  NOMES DE COLUNAS: Para gráficos de TABELA, use NOMES EXATOS. Verifique se a coluna de VALOR (eixo_y, valores) é numérica (float64/int64) conforme os "tipos inferidos". Se não for, NÃO sugira gráfico que exija número para ela, A MENOS que extraia valor numérico dela (ex: de '70%' -> 70.0; '70% - 86%' -> 70.0 ou 78.0; 'R$ 15,5 Bi' -> 15.5). Se extrair do texto, coloque em "dados".
+        2.  COBERTURA GEOGRÁFICA (Player, Cidades): Sugira "tabela_dados" com "dados" nos "parametros".
+        3.  SWOT COMPARATIVO: Se tabela compara SWOTs, gere "lista_swot" INDIVIDUAL por player.
         Retorne APENAS a lista JSON válida.
         """
         with st.spinner("🤖 Gemini analisando..."):
@@ -125,7 +117,8 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
         cleaned_text = response.text.strip().lstrip("```json").rstrip("```").strip()
         # st.text_area("Debug Resposta Gemini:", cleaned_text, height=200)
         sugestoes = json.loads(cleaned_text)
-        if isinstance(sugestoes, list): st.success(f"{len(sugestoes)} sugestões!"); return sugestoes
+        if isinstance(sugestoes, list) and all(isinstance(item, dict) for item in sugestoes):
+             st.success(f"{len(sugestoes)} sugestões!"); return sugestoes
         st.error("Resposta Gemini não é lista JSON."); return []
     except json.JSONDecodeError as e: st.error(f"Erro JSON Gemini: {e}"); st.code(response.text if 'response' in locals() else "N/A", language="text"); return []
     except Exception as e: st.error(f"Erro API Gemini: {e}"); st.text(traceback.format_exc()); return []
@@ -134,15 +127,14 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
 st.set_page_config(layout="wide"); st.title("✨ Gemini: DOCX para Insights Visuais")
 st.markdown("Upload DOCX para sugestões de visualização pela IA.")
 
-# Inicialização de estado (mais concisa)
 for k, default_val in [("sugestoes_gemini", []), ("config_sugestoes", {}), 
                        ("conteudo_docx", {"texto": "", "tabelas": []}), 
-                       ("nome_arquivo_atual", None), ("debug_checkbox_key", False)]:
+                       ("nome_arquivo_atual", None), ("debug_checkbox_key_main", False)]:
     st.session_state.setdefault(k, default_val)
 
-uploaded_file = st.file_uploader("Selecione DOCX", type="docx", key="uploader_main_key") # Chave única
-show_debug_info = st.sidebar.checkbox("Mostrar Debug Info", value=st.session_state.debug_checkbox_key, key="debug_cb_widget_key")
-st.session_state.debug_checkbox_key = show_debug_info # Sincroniza estado com valor do widget
+uploaded_file = st.file_uploader("Selecione DOCX", type="docx", key="uploader_main_key")
+show_debug_info = st.sidebar.checkbox("Mostrar Debug Info", value=st.session_state.debug_checkbox_key_main, key="debug_cb_widget_key")
+st.session_state.debug_checkbox_key_main = show_debug_info
 
 if uploaded_file:
     if st.session_state.nome_arquivo_atual != uploaded_file.name: 
@@ -158,15 +150,14 @@ if uploaded_file:
                     st.text_area("Texto (amostra)", texto_doc[:1000], height=80)
                     for t_info_dbg in tabelas_doc:
                         st.write(f"ID: {t_info_dbg['id']}, Nome: {t_info_dbg['nome']}")
-                        try: st.dataframe(t_info_dbg['dataframe'].head().astype(str).fillna('-')) # .fillna para melhor display
+                        try: st.dataframe(t_info_dbg['dataframe'].head().astype(str).fillna("-")) 
                         except Exception: st.text(f"Head:\n{t_info_dbg['dataframe'].head().to_string(na_rep='-')}")
                         st.write("Tipos:", t_info_dbg['dataframe'].dtypes.to_dict())
             sugestoes = analisar_documento_com_gemini(texto_doc, tabelas_doc)
             st.session_state.sugestoes_gemini = sugestoes
-            # Inicializa config_sugestoes com IDs corretos das sugestões
             temp_config = {}
             for i,s_init_cfg in enumerate(sugestoes): 
-                s_id_cfg = s_init_cfg.get("id", f"s_{i}_{hash(s_init_cfg.get('titulo'))}"); s_init_cfg["id"] = s_id_cfg
+                s_id_cfg = s_init_cfg.get("id", f"s_{i}_{hash(s_init_cfg.get('titulo',''))}"); s_init_cfg["id"] = s_id_cfg
                 temp_config[s_id_cfg] = {"aceito":True,"titulo_editado":s_init_cfg.get("titulo","S/Título"),"dados_originais":s_init_cfg}
             st.session_state.config_sugestoes = temp_config
         else: st.warning("Nenhum conteúdo extraído.")
@@ -174,19 +165,15 @@ if uploaded_file:
 if st.session_state.sugestoes_gemini:
     st.sidebar.header("⚙️ Configurar Sugestões")
     for sug_sidebar in st.session_state.sugestoes_gemini:
-        s_id_sb = sug_sidebar['id']
-        # Garante que a config existe, caso a sugestão tenha sido adicionada dinamicamente
+        s_id_sb = sug_sidebar['id'] 
         if s_id_sb not in st.session_state.config_sugestoes:
-            st.session_state.config_sugestoes[s_id_sb] = {"aceito":True,"titulo_editado":sug_sidebar.get("titulo","S/Título"),"dados_originais":sug_sidebar}
+             st.session_state.config_sugestoes[s_id_sb] = {"aceito":True,"titulo_editado":sug_sidebar.get("titulo","S/Título"),"dados_originais":sug_sidebar}
         cfg_sb = st.session_state.config_sugestoes[s_id_sb]
-
         with st.sidebar.expander(f"{cfg_sb['titulo_editado']}", expanded=False):
             st.caption(f"Tipo: {sug_sidebar.get('tipo_sugerido')} | Fonte: {sug_sidebar.get('fonte_id')}")
             st.markdown(f"**IA:** *{sug_sidebar.get('justificativa', 'N/A')}*")
             cfg_sb["aceito"]=st.checkbox("Incluir?",value=cfg_sb["aceito"],key=f"acc_{s_id_sb}")
             cfg_sb["titulo_editado"]=st.text_input("Título",value=cfg_sb["titulo_editado"],key=f"tit_{s_id_sb}")
-            
-            # Edição de parâmetros (mantida a lógica anterior)
             params_orig_sb = cfg_sb["dados_originais"].get("parametros",{})
             tipo_sug_sb_edit = sug_sidebar.get("tipo_sugerido")
             if tipo_sug_sb_edit in ["grafico_barras","grafico_pizza","grafico_linha","grafico_dispersao"] and \
@@ -194,26 +181,27 @@ if st.session_state.sugestoes_gemini:
                 df_corr_sb = next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"] == sug_sidebar.get("fonte_id")), None)
                 if df_corr_sb is not None:
                     opts_sb = [""] + df_corr_sb.columns.tolist()
+                    editable_params_sb = params_orig_sb # Modifica diretamente os params da sugestão original
                     if tipo_sug_sb_edit != "grafico_pizza":
-                        params_orig_sb["eixo_x"] = st.selectbox("Eixo X", opts_sb, index=opts_sb.index(params_orig_sb.get("eixo_x","")) if params_orig_sb.get("eixo_x","") in opts_sb else 0, key=f"px_sb_{s_id_sb}")
-                        params_orig_sb["eixo_y"] = st.selectbox("Eixo Y", opts_sb, index=opts_sb.index(params_orig_sb.get("eixo_y","")) if params_orig_sb.get("eixo_y","") in opts_sb else 0, key=f"py_sb_{s_id_sb}")
+                        editable_params_sb["eixo_x"] = st.selectbox("Eixo X", opts_sb, index=opts_sb.index(editable_params_sb.get("eixo_x","")) if editable_params_sb.get("eixo_x","") in opts_sb else 0, key=f"px_sb_{s_id_sb}")
+                        editable_params_sb["eixo_y"] = st.selectbox("Eixo Y", opts_sb, index=opts_sb.index(editable_params_sb.get("eixo_y","")) if editable_params_sb.get("eixo_y","") in opts_sb else 0, key=f"py_sb_{s_id_sb}")
                     else:
-                        params_orig_sb["categorias"] = st.selectbox("Categorias", opts_sb, index=opts_sb.index(params_orig_sb.get("categorias","")) if params_orig_sb.get("categorias","") in opts_sb else 0, key=f"pcat_sb_{s_id_sb}")
-                        params_orig_sb["valores"] = st.selectbox("Valores", opts_sb, index=opts_sb.index(params_orig_sb.get("valores","")) if params_orig_sb.get("valores","") in opts_sb else 0, key=f"pval_sb_{s_id_sb}")
+                        editable_params_sb["categorias"] = st.selectbox("Categorias", opts_sb, index=opts_sb.index(editable_params_sb.get("categorias","")) if editable_params_sb.get("categorias","") in opts_sb else 0, key=f"pcat_sb_{s_id_sb}")
+                        editable_params_sb["valores"] = st.selectbox("Valores", opts_sb, index=opts_sb.index(editable_params_sb.get("valores","")) if editable_params_sb.get("valores","") in opts_sb else 0, key=f"pval_sb_{s_id_sb}")
 
     if st.sidebar.button("🚀 Gerar Dashboard", type="primary", use_container_width=True):
         st.header("📊 Dashboard"); kpis_dash, outros_dash = [], []
-        for s_id_dash, cfg_dash in st.session_state.config_sugestoes.items():
-            if cfg_dash["aceito"]: 
-                item_dash = {"titulo":cfg_dash["titulo_editado"], **cfg_dash["dados_originais"]}
-                (kpis_dash if item_dash["tipo_sugerido"]=="kpi" else outros_dash).append(item_dash)
+        for s_id_render, config_render in st.session_state.config_sugestoes.items():
+            if config_render["aceito"]: 
+                item_dash = {"titulo":config_render["titulo_editado"], **config_render["dados_originais"]}
+                (kpis_dash if item_dash.get("tipo_sugerido")=="kpi" else outros_dash).append(item_dash)
         
         if kpis_dash:
             cols_kpi_dash=st.columns(min(len(kpis_dash), 4)); 
             for i_kpi_d, k_d in enumerate(kpis_dash):
                 with cols_kpi_dash[i_kpi_d % min(len(kpis_dash), 4)]:
                     p_kpi = k_d.get("parametros",{}); 
-                    st.metric(k_d["titulo"],str(p_kpi.get("valor","N/A")),str(p_kpi.get("delta","")),help=p_kpi.get("descricao"))
+                    st.metric(k_d.get("titulo","KPI"),str(p_kpi.get("valor","N/A")),str(p_kpi.get("delta","")),help=p_kpi.get("descricao"))
             if outros_dash: st.divider()
 
         if show_debug_info and (kpis_dash or outros_dash):
@@ -221,32 +209,32 @@ if st.session_state.sugestoes_gemini:
                 if kpis_dash: st.json({"KPIs": kpis_dash}, expanded=False)
                 if outros_dash: st.json({"Outros Elementos": outros_dash}, expanded=False)
         
+        elementos_renderizados_count = 0 # INICIALIZAÇÃO CORRIGIDA
         if outros_dash:
-            item_cols_dash=st.columns(2); col_idx_dash=0
+            item_cols_render = st.columns(2); col_idx_dash = 0 # INICIALIZAÇÃO CORRIGIDA
             for item_d_main in outros_dash:
-                with item_cols_dash[col_idx_dash%2]:
+                with item_cols_render[col_idx_dash % 2]:
                     st.subheader(item_d_main["titulo"]); df_plot_d, el_rend_d = None, False
                     params_d=item_d_main.get("parametros",{}); tipo_d=item_d_main.get("tipo_sugerido"); fonte_d=item_d_main.get("fonte_id")
                     try:
-                        if params_d.get("dados"): # Prioriza dados da LLM
+                        if params_d.get("dados"):
                             try: df_plot_d=pd.DataFrame(params_d["dados"])
                             except Exception as e_dfd: st.warning(f"'{item_d_main['titulo']}': Erro DF de 'dados': {e_dfd}"); continue
-                        elif str(fonte_d).startswith("doc_tabela_"): # Senão, busca tabela extraída
+                        elif str(fonte_d).startswith("doc_tabela_"):
                             df_plot_d=next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"]==fonte_d),None)
-
+                        
                         if tipo_d=="tabela_dados":
-                            df_t_render = None
+                            df_t_render = None # Inicializa para evitar UnboundLocalError
                             if str(fonte_d).startswith("texto_") and params_d.get("dados"):
                                 try: 
                                     df_t_render = pd.DataFrame(params_d.get("dados"))
                                     if params_d.get("colunas_titulo"): df_t_render.columns = params_d.get("colunas_titulo")
-                                except Exception as e_df_txt_tbl: st.warning(f"Erro ao criar tabela de texto para '{item_d_main['titulo']}': {e_df_txt_tbl}")
+                                except Exception as e_df_txt_tbl: st.warning(f"Erro tabela texto '{item_d_main['titulo']}': {e_df_txt_tbl}")
                             else: 
                                 id_t_render=params_d.get("id_tabela_original",fonte_d)
                                 df_t_render=next((t["dataframe"] for t in st.session_state.conteudo_docx["tabelas"] if t["id"]==id_t_render),None)
-                            
                             if df_t_render is not None: st.dataframe(df_t_render.astype(str).fillna("-")); el_rend_d=True
-                            else: st.warning(f"Tabela para '{item_d_main['titulo']}' não encontrada (Fonte ID: {fonte_d}).")
+                            else: st.warning(f"Tabela '{item_d_main['titulo']}' (Fonte: {fonte_d}) não encontrada ou dados ausentes.")
                         
                         elif tipo_d=="lista_swot":
                             swot_d_render=params_d; c1s,c2s=st.columns(2)
@@ -255,7 +243,7 @@ if st.session_state.sugestoes_gemini:
                                 with ct_s: st.markdown(f"##### {h_s}"); [st.markdown(f"- {p_s}") for p_s in swot_d_render.get(k_s,["N/A"])]
                             el_rend_d=True
                         
-                        elif df_plot_d is not None: # Gráficos que usam df_plot_d
+                        elif df_plot_d is not None:
                             x,y,cat,val = params_d.get("eixo_x"),params_d.get("eixo_y"),params_d.get("categorias"),params_d.get("valores")
                             fn_d,p_args_d=None,{}
                             if tipo_d=="grafico_barras" and x and y: fn_d,p_args_d=px.bar,{"x":x,"y":y}
@@ -264,7 +252,9 @@ if st.session_state.sugestoes_gemini:
                             elif tipo_d=="grafico_pizza" and cat and val: fn_d,p_args_d=px.pie,{"names":cat,"values":val}
                             
                             if fn_d and all(k_col_d in df_plot_d.columns for k_col_d in p_args_d.values() if isinstance(k_col_d,str)):
-                                st.plotly_chart(fn_d(df_plot_d,title=item_d_main["titulo"],**p_args_d),use_container_width=True); el_rend_d=True
+                                try:
+                                    st.plotly_chart(fn_d(df_plot_d,title=item_d_main["titulo"],**p_args_d),use_container_width=True); el_rend_d=True
+                                except Exception as e_plotly: st.warning(f"Erro Plotly '{item_d_main['titulo']}': {e_plotly}. Verifique tipos de dados das colunas. X:{x}, Y:{y}, Cat:{cat}, Val:{val}. DF Dtypes: {df_plot_d.dtypes.to_dict()}")
                             elif fn_d: st.warning(f"Colunas ausentes/incorretas para '{item_d_main['titulo']}'. Esperado: {p_args_d}. Disponível: {df_plot_d.columns.tolist()}")
                         
                         if tipo_d == 'mapa': st.info(f"Mapa para '{item_d_main['titulo']}' não implementado."); el_rend_d=True
@@ -273,18 +263,22 @@ if st.session_state.sugestoes_gemini:
                             st.info(f"'{item_d_main['titulo']}' (tipo: {tipo_d}) não gerado. Dados/Tipo não suportado ou DF não pôde ser criado/encontrado.")
                     except Exception as e_main_render: st.error(f"Erro renderizando '{item_d_main['titulo']}': {e_main_render}")
                 
-                if el_rend_d: col_idx_dash+=1; elementos_renderizados_count+=1 # elementos_renderizados_count não foi definido antes, corrigindo
+                if el_rend_d: col_idx_dash+=1; elementos_renderizados_count+=1
         
-        # Definindo elementos_renderizados_count se não foi usado antes no loop
-        # (Essa definição abaixo pode ser redundante se a lógica acima funcionar sempre)
-        if 'elementos_renderizados_count' not in locals():
-            elementos_renderizados_count = sum(1 for item in outros_dash if item.get("el_rend_d", False)) # Exemplo, precisa de um sinalizador
-
-        if elementos_renderizados_count == 0 and any(c['aceito'] and c['dados_originais']['tipo_sugerido'] != 'kpi' for c in st.session_state.config_sugestoes.values()):
-            st.info("Nenhum gráfico/tabela (além de KPIs) pôde ser gerado com as seleções atuais.")
+        if elementos_renderizados_count == 0 and any(c['aceito'] and c['dados_originais'].get('tipo_sugerido') != 'kpi' for c in st.session_state.config_sugestoes.values()):
+            st.info("Nenhum gráfico/tabela (além de KPIs) pôde ser gerado.")
         elif elementos_renderizados_count == 0 and not kpis_dash:
-            st.info("Nenhum elemento foi selecionado ou pôde ser gerado para o dashboard.")
+            st.info("Nenhum elemento selecionado ou pôde ser gerado para o dashboard.")
 
 elif uploaded_file is None and st.session_state.nome_arquivo_atual is not None:
-    for key_to_clear_main in list(st.session_state.keys()): del st.session_state[key_to_clear_main]
+    keys_to_clear = list(st.session_state.keys())
+    for key_clear in keys_to_clear:
+        # Não limpa chaves internas do Streamlit ou chaves de widgets persistentes se não desejar
+        if key_clear not in ['debug_checkbox_widget_key', 'uploader_main_key']: # Exemplo de chaves a não limpar
+            del st.session_state[key_clear]
+    # Reinicializa os estados principais
+    st.session_state.sugestoes_gemini, st.session_state.config_sugestoes = [], {}
+    st.session_state.conteudo_docx = {"texto": "", "tabelas": []}
+    st.session_state.nome_arquivo_atual = None
+    st.session_state.debug_checkbox_key_main = False
     st.experimental_rerun()
