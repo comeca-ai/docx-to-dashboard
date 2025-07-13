@@ -2,6 +2,22 @@
 
 Este aplicativo Streamlit permite fazer upload de documentos DOCX e gerar dashboards automatizados com insights através da API do Google Gemini.
 
+## 🚀 **NOVO: Sistema Multi-Agente para Análise Profunda**
+
+### Principais Melhorias Implementadas:
+
+- **🤖 Sistema Multi-Agente**: 3 agentes especializados trabalhando em conjunto
+- **📊 Análise Mais Profunda**: Insights quantitativos e estratégicos detalhados  
+- **🎯 Recomendações Acionáveis**: Roadmap estruturado com priorização
+- **💡 Síntese Inteligente**: Conexões entre dados e estratégia
+- **📈 Análise Avançada**: Tendências, correlações e anomalias
+
+### Interface Atualizada:
+- **Nova página**: "Análise Profunda Multi-Agente"
+- **Indicadores visuais** de status e prioridade
+- **Layout otimizado** com múltiplas colunas
+- **Feedback em tempo real** do processamento dos agentes
+
 ## ✨ Novas Funcionalidades - Sistema Multi-Agente
 
 ### Análise Profunda Multi-Agente
@@ -69,13 +85,24 @@ O sistema agora utiliza múltiplos agentes especializados para fornecer análise
 - **Layout organizado** em colunas para melhor visualização
 - **Roadmap temporal** estruturado
 - **Métricas interativas** com tooltips explicativos
+- **Feedback em tempo real** do status dos agentes
 
 ## 🧪 Sistema Multi-Agente
 
 O novo sistema executa análises especializadas em paralelo:
 
 1. **Agente de Dados** → Análise quantitativa profunda
-2. **Agente Estratégico** → Insights de negócio e estratégia
+2. **Agente Estratégico** → Insights de negócio e estratégia  
 3. **Agente Sintetizador** → Integração e priorização
 
 Cada agente utiliza prompts especializados para maximizar a qualidade da análise em sua área de expertise.
+
+## 🔍 Exemplo de Uso
+
+1. **Upload** de relatório executivo em DOCX
+2. **Processamento automático** pelos 3 agentes
+3. **Visualização** de insights organizados por tipo:
+   - 📊 KPIs críticos com scoring
+   - 📈 Tendências e correlações
+   - 🎯 Recomendações priorizadas
+   - 🗺️ Roadmap de implementação

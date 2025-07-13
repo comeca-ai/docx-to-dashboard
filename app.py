@@ -281,19 +281,52 @@ def executar_analise_profunda_multiagente(texto_doc, tabelas_info_list):
             
             with col1:
                 st.info("🔢 Agente de Análise de Dados trabalhando...")
-                analise_dados = agente_analise_dados(texto_doc, tabelas_info_list, model)
+                try:
+                    analise_dados = agente_analise_dados(texto_doc, tabelas_info_list, model)
+                    if analise_dados:
+                        st.success("✅ Análise de dados concluída")
+                    else:
+                        st.warning("⚠️ Análise de dados parcial")
+                        analise_dados = {}
+                except Exception as e:
+                    st.error(f"❌ Erro na análise de dados: {str(e)[:100]}...")
+                    analise_dados = {}
             
             with col2:
                 st.info("📊 Agente de Análise Estratégica trabalhando...")
-                analise_estrategica = agente_analise_estrategica(texto_doc, tabelas_info_list, model)
+                try:
+                    analise_estrategica = agente_analise_estrategica(texto_doc, tabelas_info_list, model)
+                    if analise_estrategica:
+                        st.success("✅ Análise estratégica concluída")
+                    else:
+                        st.warning("⚠️ Análise estratégica parcial")
+                        analise_estrategica = {}
+                except Exception as e:
+                    st.error(f"❌ Erro na análise estratégica: {str(e)[:100]}...")
+                    analise_estrategica = {}
             
             st.info("🧠 Agente Sintetizador integrando insights...")
-            sintese = agente_sintese(analise_dados, analise_estrategica, texto_doc, model)
+            try:
+                sintese = agente_sintese(analise_dados, analise_estrategica, texto_doc, model)
+                if sintese:
+                    st.success("✅ Síntese concluída - Análise profunda finalizada!")
+                else:
+                    st.warning("⚠️ Síntese parcial")
+                    sintese = {}
+            except Exception as e:
+                st.error(f"❌ Erro na síntese: {str(e)[:100]}...")
+                sintese = {}
+        
+        # Verificar se pelo menos um agente funcionou
+        if not analise_dados and not analise_estrategica and not sintese:
+            st.error("Não foi possível executar a análise profunda. Tente novamente ou verifique a configuração da API.")
+            return {}
         
         return {
             "analise_dados": analise_dados,
             "analise_estrategica": analise_estrategica,
-            "sintese": sintese
+            "sintese": sintese,
+            "status": "sucesso_parcial" if not all([analise_dados, analise_estrategica, sintese]) else "sucesso_completo"
         }
     
     except Exception as e:
@@ -518,6 +551,17 @@ elif st.session_state.pg_sel=="Análise Profunda Multi-Agente":
         st.info("Aguardando análise profunda...")
     else:
         analise = st.session_state.analise_profunda
+        
+        # Mostrar status da análise
+        status = analise.get("status", "desconhecido")
+        if status == "sucesso_completo":
+            st.success("✅ **Análise Profunda Completa** - Todos os agentes executaram com sucesso!")
+        elif status == "sucesso_parcial":
+            st.warning("⚠️ **Análise Profunda Parcial** - Alguns agentes apresentaram limitações, mas há insights disponíveis.")
+        else:
+            st.info("ℹ️ **Análise Profunda Disponível** - Visualize os insights gerados abaixo.")
+        
+        st.divider()
         
         # Síntese Executiva
         if analise.get("sintese", {}).get("sintese_executiva"):
