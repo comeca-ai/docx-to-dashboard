@@ -81,7 +81,133 @@ def extrair_conteudo_docx(uploaded_file):
         st.error(f"Erro crítico ao ler DOCX: {e_doc_read}")
         return "", []
 
+# --- Sistema Multi-Agente para Análise Profunda ---
+def agente_analise_dados(texto_doc, tabelas_info_list, model):
+    """Agente especializado em análise de dados e métricas"""
+    tabelas_prompt_str = ""
+    for t_info in tabelas_info_list:
+        df, nome_t, id_t = t_info["dataframe"], t_info["nome"], t_info["id"]
+        sample_df = df.head(5).iloc[:, :min(8, len(df.columns))]
+        try: md_table = sample_df.to_markdown(index=False)
+        except: md_table = sample_df.to_string(index=False) 
+        
+        # Análise estatística básica
+        stats_info = ""
+        for col in df.columns[:5]:  # Primeiras 5 colunas
+            if pd.api.types.is_numeric_dtype(df[col]):
+                stats = df[col].describe()
+                stats_info += f"\n  {col}: Média={stats['mean']:.2f}, Mediana={stats['50%']:.2f}, Min={stats['min']:.2f}, Max={stats['max']:.2f}"
+        
+        tabelas_prompt_str += f"\n--- Tabela '{nome_t}' (ID: {id_t}) ---\nEstatísticas:{stats_info}\nDados:\n{md_table}\n"
+    
+    text_limit = 20000
+    prompt_text = texto_doc[:text_limit]
+    
+    prompt = f"""
+    Você é um AGENTE ESPECIALISTA EM ANÁLISE DE DADOS. Analise profundamente os dados fornecidos.
+    
+    [TEXTO]{prompt_text}[FIM TEXTO]
+    [TABELAS]{tabelas_prompt_str}[FIM TABELAS]
+    
+    Como especialista em dados, identifique:
+    1. KPIs críticos e métricas importantes
+    2. Tendências e padrões nos dados
+    3. Correlações entre variáveis
+    4. Outliers ou anomalias
+    5. Insights quantitativos profundos
+    
+    Retorne JSON com:
+    {{
+        "kpis_criticos": [
+            {{"nome": "Nome KPI", "valor": "Valor", "insight": "Insight sobre o KPI", "criticidade": "alta|media|baixa"}}
+        ],
+        "tendencias": ["Tendência 1", "Tendência 2"],
+        "correlacoes": ["Correlação identificada 1", "Correlação 2"],
+        "anomalias": ["Anomalia 1", "Anomalia 2"],
+        "insights_quantitativos": ["Insight 1", "Insight 2"]
+    }}
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return json.loads(response.text.strip().lstrip("```json").rstrip("```").strip())
+    except: return {}
+
+def agente_analise_estrategica(texto_doc, tabelas_info_list, model):
+    """Agente especializado em análise estratégica e de negócios"""
+    text_limit = 25000
+    prompt_text = texto_doc[:text_limit]
+    
+    prompt = f"""
+    Você é um AGENTE ESPECIALISTA EM ANÁLISE ESTRATÉGICA E DE NEGÓCIOS. Faça uma análise estratégica profunda.
+    
+    [TEXTO]{prompt_text}[FIM TEXTO]
+    
+    Como especialista estratégico, analise:
+    1. Pontos fortes e fracos estratégicos
+    2. Oportunidades de mercado e crescimento
+    3. Ameaças e riscos
+    4. Recomendações acionáveis
+    5. Cenários futuros possíveis
+    
+    Retorne JSON com:
+    {{
+        "analise_swot_detalhada": {{
+            "forcas": ["Força detalhada 1", "Força 2"],
+            "fraquezas": ["Fraqueza detalhada 1", "Fraqueza 2"],
+            "oportunidades": ["Oportunidade detalhada 1", "Oportunidade 2"],
+            "ameacas": ["Ameaça detalhada 1", "Ameaça 2"]
+        }},
+        "recomendacoes_acionaveis": [
+            {{"acao": "Ação recomendada", "prioridade": "alta|media|baixa", "prazo": "curto|medio|longo", "impacto": "Descrição do impacto"}}
+        ],
+        "cenarios_futuros": ["Cenário 1", "Cenário 2"],
+        "fatores_criticos_sucesso": ["Fator 1", "Fator 2"]
+    }}
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return json.loads(response.text.strip().lstrip("```json").rstrip("```").strip())
+    except: return {}
+
+def agente_sintese(analise_dados, analise_estrategica, texto_doc, model):
+    """Agente que sintetiza insights de outros agentes"""
+    
+    prompt = f"""
+    Você é um AGENTE SINTETIZADOR SÊNIOR. Combine e sintetize os insights dos agentes especialistas.
+    
+    ANÁLISE DE DADOS: {json.dumps(analise_dados, ensure_ascii=False)}
+    ANÁLISE ESTRATÉGICA: {json.dumps(analise_estrategica, ensure_ascii=False)}
+    
+    Como sintetizador sênior, crie:
+    1. Síntese executiva dos principais insights
+    2. Conexões entre insights quantitativos e estratégicos
+    3. Priorização de ações baseada em dados
+    4. Roadmap de implementação
+    
+    Retorne JSON com:
+    {{
+        "sintese_executiva": "Resumo executivo dos principais insights...",
+        "conexoes_insights": ["Conexão 1 entre dados e estratégia", "Conexão 2"],
+        "priorizacao_acoes": [
+            {{"acao": "Ação prioritária", "score": 1-10, "justificativa": "Por que é prioritária"}}
+        ],
+        "roadmap": {{
+            "imediato": ["Ação imediata 1", "Ação 2"],
+            "30_dias": ["Ação 30 dias 1", "Ação 2"],
+            "90_dias": ["Ação 90 dias 1", "Ação 2"]
+        }}
+    }}
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return json.loads(response.text.strip().lstrip("```json").rstrip("```").strip())
+    except: return {}
+
 def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
+    """Análise original com visualizações"""
     api_key = get_gemini_api_key()
     if not api_key: st.warning("Chave API Gemini não configurada."); return []
     try:
@@ -128,7 +254,7 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
         4.  SWOT: Se tabela compara SWOTs, gere "lista_swot" INDIVIDUAL por player.
         Retorne APENAS a lista JSON válida.
         """
-        with st.spinner("🤖 Gemini analisando..."):
+        with st.spinner("🤖 Gemini analisando visualizações..."):
             response = model.generate_content(prompt)
         cleaned_text = response.text.strip().lstrip("```json").rstrip("```").strip()
         sugestoes = json.loads(cleaned_text)
@@ -136,6 +262,76 @@ def analisar_documento_com_gemini(texto_doc, tabelas_info_list):
         st.error("Resposta Gemini não é lista JSON."); return []
     except json.JSONDecodeError as e: st.error(f"Erro JSON Gemini: {e}"); st.code(response.text if 'response' in locals() else "N/A", language="text"); return []
     except Exception as e: st.error(f"Erro API Gemini: {e}"); st.text(traceback.format_exc()); return []
+
+def executar_analise_profunda_multiagente(texto_doc, tabelas_info_list):
+    """Executa análise profunda usando sistema multi-agente"""
+    api_key = get_gemini_api_key()
+    if not api_key: 
+        st.warning("Chave API Gemini não configurada para análise profunda.")
+        return {}
+    
+    try:
+        genai.configure(api_key=api_key)
+        safety_settings = [{"category": c,"threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT","HARM_CATEGORY_HATE_SPEECH","HARM_CATEGORY_SEXUALLY_EXPLICIT","HARM_CATEGORY_DANGEROUS_CONTENT"]]
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest", safety_settings=safety_settings)
+        
+        with st.spinner("🔍 Executando análise profunda multi-agente..."):
+            # Executar agentes em paralelo conceitual
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.info("🔢 Agente de Análise de Dados trabalhando...")
+                try:
+                    analise_dados = agente_analise_dados(texto_doc, tabelas_info_list, model)
+                    if analise_dados:
+                        st.success("✅ Análise de dados concluída")
+                    else:
+                        st.warning("⚠️ Análise de dados parcial")
+                        analise_dados = {}
+                except Exception as e:
+                    st.error(f"❌ Erro na análise de dados: {str(e)[:100]}...")
+                    analise_dados = {}
+            
+            with col2:
+                st.info("📊 Agente de Análise Estratégica trabalhando...")
+                try:
+                    analise_estrategica = agente_analise_estrategica(texto_doc, tabelas_info_list, model)
+                    if analise_estrategica:
+                        st.success("✅ Análise estratégica concluída")
+                    else:
+                        st.warning("⚠️ Análise estratégica parcial")
+                        analise_estrategica = {}
+                except Exception as e:
+                    st.error(f"❌ Erro na análise estratégica: {str(e)[:100]}...")
+                    analise_estrategica = {}
+            
+            st.info("🧠 Agente Sintetizador integrando insights...")
+            try:
+                sintese = agente_sintese(analise_dados, analise_estrategica, texto_doc, model)
+                if sintese:
+                    st.success("✅ Síntese concluída - Análise profunda finalizada!")
+                else:
+                    st.warning("⚠️ Síntese parcial")
+                    sintese = {}
+            except Exception as e:
+                st.error(f"❌ Erro na síntese: {str(e)[:100]}...")
+                sintese = {}
+        
+        # Verificar se pelo menos um agente funcionou
+        if not analise_dados and not analise_estrategica and not sintese:
+            st.error("Não foi possível executar a análise profunda. Tente novamente ou verifique a configuração da API.")
+            return {}
+        
+        return {
+            "analise_dados": analise_dados,
+            "analise_estrategica": analise_estrategica,
+            "sintese": sintese,
+            "status": "sucesso_parcial" if not all([analise_dados, analise_estrategica, sintese]) else "sucesso_completo"
+        }
+    
+    except Exception as e:
+        st.error(f"Erro na análise profunda multi-agente: {e}")
+        return {}
 
 def render_kpis(kpi_sugestoes):
     if kpi_sugestoes:
@@ -202,10 +398,10 @@ def render_plotly_chart(item_config, df_plot_input):
 # --- 3. Interface Streamlit Principal ---
 st.set_page_config(layout="wide", page_title="Gemini DOCX Insights")
 for k, dv in [("s_gemini",[]),("cfg_sugs",{}),("doc_ctx",{"texto":"","tabelas":[]}),
-              ("f_name",None),("dbg_cb_key",False),("pg_sel","Dashboard Principal")]:
+              ("f_name",None),("dbg_cb_key",False),("pg_sel","Dashboard Principal"),("analise_profunda",{})]:
     st.session_state.setdefault(k, dv)
 
-st.sidebar.title("✨ Navegação"); pg_opts_sb = ["Dashboard Principal","Análise SWOT Detalhada"]
+st.sidebar.title("✨ Navegação"); pg_opts_sb = ["Dashboard Principal","Análise SWOT Detalhada","Análise Profunda Multi-Agente"]
 st.session_state.pg_sel=st.sidebar.radio("Selecione:",pg_opts_sb,index=pg_opts_sb.index(st.session_state.pg_sel),key="nav_radio_final_v7")
 st.sidebar.divider(); uploaded_file_sb = st.sidebar.file_uploader("Selecione DOCX",type="docx",key="uploader_sidebar_final_v7")
 # A chave do widget 'debug_cb_sidebar_key_final_v7' atualiza st.session_state.dbg_cb_key
@@ -214,12 +410,15 @@ st.session_state.dbg_cb_key=st.sidebar.checkbox("Mostrar Debug Info",value=st.se
 if uploaded_file_sb:
     if st.session_state.f_name!=uploaded_file_sb.name: 
         with st.spinner("Processando novo documento..."):
-            st.session_state.s_gemini,st.session_state.cfg_sugs=[],{}
+            st.session_state.s_gemini,st.session_state.cfg_sugs,st.session_state.analise_profunda=[],{},{}
             st.session_state.f_name=uploaded_file_sb.name
             txt_main,tbls_main=extrair_conteudo_docx(uploaded_file_sb);st.session_state.doc_ctx={"texto":txt_main,"tabelas":tbls_main}
             if txt_main or tbls_main:
                 sugs_main=analisar_documento_com_gemini(txt_main,tbls_main);st.session_state.s_gemini=sugs_main
                 st.session_state.cfg_sugs={s.get("id",f"s_main_{i}_{hash(s.get('titulo'))}"):{"aceito":True,"titulo_editado":s.get("titulo","S/T"),"dados_originais":s} for i,s in enumerate(sugs_main)}
+                
+                # Executar análise profunda multi-agente
+                st.session_state.analise_profunda = executar_analise_profunda_multiagente(txt_main, tbls_main)
             else: st.sidebar.warning("Nenhum conteúdo extraído.")
     
     if st.session_state.dbg_cb_key and (st.session_state.doc_ctx["texto"] or st.session_state.doc_ctx["tabelas"]): # Usa o estado correto
@@ -249,6 +448,12 @@ else:
 
 if st.session_state.pg_sel=="Dashboard Principal":
     st.title("📊 Dashboard de Insights")
+    
+    # Mostrar indicador de análise profunda disponível
+    if uploaded_file_sb and st.session_state.analise_profunda:
+        st.success("🧠 **Análise Profunda Multi-Agente** disponível! Acesse na barra lateral para insights mais detalhados.")
+        st.divider()
+    
     if uploaded_file_sb and st.session_state.s_gemini:
         kpis_r, outros_r = [], []
         for s_id_main_dash, s_cfg_main_dash in st.session_state.cfg_sugs.items():
@@ -338,6 +543,164 @@ elif st.session_state.pg_sel=="Análise SWOT Detalhada":
             for swot_item_render_page in swot_sugs_page_render:
                 render_swot_card(swot_item_render_page.get("titulo","SWOT"),swot_item_render_page.get("parametros",{}), card_key_prefix=swot_item_render_page.get("id","swot_pg_def"))
 
+elif st.session_state.pg_sel=="Análise Profunda Multi-Agente":
+    st.title("🧠 Análise Profunda Multi-Agente")
+    if not uploaded_file_sb: 
+        st.warning("Upload DOCX na barra lateral.")
+    elif not st.session_state.analise_profunda:
+        st.info("Aguardando análise profunda...")
+    else:
+        analise = st.session_state.analise_profunda
+        
+        # Mostrar status da análise
+        status = analise.get("status", "desconhecido")
+        if status == "sucesso_completo":
+            st.success("✅ **Análise Profunda Completa** - Todos os agentes executaram com sucesso!")
+        elif status == "sucesso_parcial":
+            st.warning("⚠️ **Análise Profunda Parcial** - Alguns agentes apresentaram limitações, mas há insights disponíveis.")
+        else:
+            st.info("ℹ️ **Análise Profunda Disponível** - Visualize os insights gerados abaixo.")
+        
+        st.divider()
+        
+        # Síntese Executiva
+        if analise.get("sintese", {}).get("sintese_executiva"):
+            st.header("📋 Síntese Executiva")
+            st.info(analise["sintese"]["sintese_executiva"])
+            st.divider()
+        
+        # Análise de Dados
+        if analise.get("analise_dados"):
+            st.header("🔢 Insights de Dados")
+            dados = analise["analise_dados"]
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if dados.get("kpis_criticos"):
+                    st.subheader("📊 KPIs Críticos")
+                    for kpi in dados["kpis_criticos"]:
+                        criticidade_color = {"alta": "🔴", "media": "🟡", "baixa": "🟢"}.get(kpi.get("criticidade", "media"), "🟡")
+                        st.metric(
+                            label=f"{criticidade_color} {kpi.get('nome', 'KPI')}",
+                            value=kpi.get('valor', 'N/A'),
+                            help=kpi.get('insight', '')
+                        )
+                
+                if dados.get("tendencias"):
+                    st.subheader("📈 Tendências Identificadas")
+                    for trend in dados["tendencias"]:
+                        st.markdown(f"• {trend}")
+            
+            with col2:
+                if dados.get("correlacoes"):
+                    st.subheader("🔗 Correlações")
+                    for corr in dados["correlacoes"]:
+                        st.markdown(f"• {corr}")
+                
+                if dados.get("anomalias"):
+                    st.subheader("⚠️ Anomalias Detectadas")
+                    for anom in dados["anomalias"]:
+                        st.warning(f"• {anom}")
+            
+            if dados.get("insights_quantitativos"):
+                st.subheader("🧮 Insights Quantitativos")
+                for insight in dados["insights_quantitativos"]:
+                    st.markdown(f"• {insight}")
+            
+            st.divider()
+        
+        # Análise Estratégica
+        if analise.get("analise_estrategica"):
+            st.header("🎯 Análise Estratégica")
+            estrategica = analise["analise_estrategica"]
+            
+            # SWOT Detalhada
+            if estrategica.get("analise_swot_detalhada"):
+                swot = estrategica["analise_swot_detalhada"]
+                render_swot_card("SWOT Estratégico Detalhado", swot, "analise_profunda_swot")
+            
+            # Recomendações Acionáveis
+            if estrategica.get("recomendacoes_acionaveis"):
+                st.subheader("🎯 Recomendações Acionáveis")
+                for rec in estrategica["recomendacoes_acionaveis"]:
+                    prioridade_color = {"alta": "🔴", "media": "🟡", "baixa": "🟢"}.get(rec.get("prioridade", "media"), "🟡")
+                    prazo_icon = {"curto": "⚡", "medio": "⏳", "longo": "🕐"}.get(rec.get("prazo", "medio"), "⏳")
+                    
+                    with st.expander(f"{prioridade_color} {prazo_icon} {rec.get('acao', 'Ação')}", expanded=False):
+                        st.write(f"**Prioridade:** {rec.get('prioridade', 'N/A')}")
+                        st.write(f"**Prazo:** {rec.get('prazo', 'N/A')}")
+                        st.write(f"**Impacto:** {rec.get('impacto', 'N/A')}")
+            
+            # Outros insights estratégicos
+            col1, col2 = st.columns(2)
+            with col1:
+                if estrategica.get("cenarios_futuros"):
+                    st.subheader("🔮 Cenários Futuros")
+                    for cenario in estrategica["cenarios_futuros"]:
+                        st.markdown(f"• {cenario}")
+            
+            with col2:
+                if estrategica.get("fatores_criticos_sucesso"):
+                    st.subheader("🎯 Fatores Críticos de Sucesso")
+                    for fator in estrategica["fatores_criticos_sucesso"]:
+                        st.markdown(f"• {fator}")
+            
+            st.divider()
+        
+        # Síntese Final e Roadmap
+        if analise.get("sintese"):
+            sintese = analise["sintese"]
+            
+            # Conexões entre insights
+            if sintese.get("conexoes_insights"):
+                st.header("🔗 Conexões e Insights Integrados")
+                for conexao in sintese["conexoes_insights"]:
+                    st.info(f"💡 {conexao}")
+            
+            # Priorização de ações
+            if sintese.get("priorizacao_acoes"):
+                st.header("📋 Ações Priorizadas")
+                acoes_ordenadas = sorted(sintese["priorizacao_acoes"], key=lambda x: x.get("score", 0), reverse=True)
+                for acao in acoes_ordenadas:
+                    score = acao.get("score", 0)
+                    color = "🔴" if score >= 8 else "🟡" if score >= 5 else "🟢"
+                    st.metric(
+                        label=f"{color} {acao.get('acao', 'Ação')}",
+                        value=f"Score: {score}/10",
+                        help=acao.get('justificativa', '')
+                    )
+            
+            # Roadmap
+            if sintese.get("roadmap"):
+                st.header("🗺️ Roadmap de Implementação")
+                roadmap = sintese["roadmap"]
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if roadmap.get("imediato"):
+                        st.subheader("⚡ Imediato")
+                        for acao in roadmap["imediato"]:
+                            st.markdown(f"• {acao}")
+                
+                with col2:
+                    if roadmap.get("30_dias"):
+                        st.subheader("📅 30 Dias")
+                        for acao in roadmap["30_dias"]:
+                            st.markdown(f"• {acao}")
+                
+                with col3:
+                    if roadmap.get("90_dias"):
+                        st.subheader("🗓️ 90 Dias")
+                        for acao in roadmap["90_dias"]:
+                            st.markdown(f"• {acao}")
+        
+        # Debug info
+        if st.session_state.dbg_cb_key:
+            with st.expander("Debug: Análise Profunda Completa", expanded=False):
+                st.json(analise)
+
 if uploaded_file_sb is None and st.session_state.f_name is not None:
     keys_to_clear_on_remove = list(st.session_state.keys())
     preserved_widget_keys_on_remove = [
@@ -358,6 +721,6 @@ if uploaded_file_sb is None and st.session_state.f_name is not None:
     for k_reinit_main, dv_reinit_main in [("s_gemini",[]),("cfg_sugs",{}),
                                 ("doc_ctx",{"texto":"","tabelas":[]}),
                                 ("f_name",None),("dbg_cb_key",False), 
-                                ("pg_sel","Dashboard Principal")]:
+                                ("pg_sel","Dashboard Principal"),("analise_profunda",{})]:
         st.session_state.setdefault(k_reinit_main, dv_reinit_main)
     st.rerun()
