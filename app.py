@@ -395,6 +395,71 @@ def render_plotly_chart(item_config, df_plot_input):
         st.warning(f"Configuração de parâmetros incompleta para '{titulo}' (tipo: {tipo_grafico}).")
     return False
 
+def show_capabilities():
+    """Mostra as capacidades do aplicativo para responder 'voce faz qualquer coisa?'"""
+    st.markdown("""
+    ## 🤖 Sim, eu faço muitas coisas! / Yes, I do many things!
+    
+    ### 🇧🇷 O que este aplicativo faz:
+    
+    **📄 Análise de Documentos DOCX:**
+    - Extraio texto e tabelas de documentos Word
+    - Converto dados em gráficos interativos
+    - Analiso KPIs e métricas importantes
+    
+    **🧠 Sistema Multi-Agente de IA:**
+    - **Agente de Dados**: Analisa métricas, tendências e correlações
+    - **Agente Estratégico**: Gera análise SWOT e recomendações
+    - **Agente Sintetizador**: Integra insights e cria roadmaps
+    
+    **📊 Visualizações Automáticas:**
+    - Dashboards interativos com KPIs
+    - Gráficos de barras, pizza, linha e dispersão
+    - Análises SWOT detalhadas
+    - Tabelas de dados formatadas
+    
+    **🎯 Insights Estratégicos:**
+    - Recomendações acionáveis priorizadas
+    - Roadmap de implementação (imediato, 30 dias, 90 dias)
+    - Análise de riscos e oportunidades
+    - Cenários futuros
+    
+    ---
+    
+    ### 🇺🇸 What this application does:
+    
+    **📄 DOCX Document Analysis:**
+    - Extract text and tables from Word documents
+    - Convert data into interactive charts
+    - Analyze important KPIs and metrics
+    
+    **🧠 Multi-Agent AI System:**
+    - **Data Agent**: Analyzes metrics, trends and correlations
+    - **Strategic Agent**: Generates SWOT analysis and recommendations
+    - **Synthesis Agent**: Integrates insights and creates roadmaps
+    
+    **📊 Automatic Visualizations:**
+    - Interactive dashboards with KPIs
+    - Bar, pie, line and scatter charts
+    - Detailed SWOT analyses
+    - Formatted data tables
+    
+    **🎯 Strategic Insights:**
+    - Prioritized actionable recommendations
+    - Implementation roadmap (immediate, 30 days, 90 days)
+    - Risk and opportunity analysis
+    - Future scenarios
+    
+    ---
+    
+    ### 🚀 Para começar / To get started:
+    1. **📁 Faça upload** de um documento DOCX na barra lateral
+    2. **⚙️ Configure** sua chave da API do Google Gemini
+    3. **📊 Explore** os três tipos de análise disponíveis
+    
+    **Precisa de ajuda?** Este aplicativo usa IA para transformar seus documentos em insights acionáveis!
+    """)
+
 # --- 3. Interface Streamlit Principal ---
 st.set_page_config(layout="wide", page_title="Gemini DOCX Insights")
 for k, dv in [("s_gemini",[]),("cfg_sugs",{}),("doc_ctx",{"texto":"","tabelas":[]}),
@@ -444,7 +509,8 @@ if uploaded_file_sb:
                 cfg_loop["aceito"]=st.checkbox("Incluir?",value=cfg_loop["aceito"],key=f"acc_loop_{s_id_loop}")
                 cfg_loop["titulo_editado"]=st.text_input("Título",value=cfg_loop["titulo_editado"],key=f"tit_loop_{s_id_loop}")
 else: 
-    if st.session_state.pg_sel=="Dashboard Principal": st.info("Upload DOCX na barra lateral.")
+    if st.session_state.pg_sel=="Dashboard Principal": 
+        show_capabilities()
 
 if st.session_state.pg_sel=="Dashboard Principal":
     st.title("📊 Dashboard de Insights")
@@ -532,7 +598,10 @@ if st.session_state.pg_sel=="Dashboard Principal":
 
 elif st.session_state.pg_sel=="Análise SWOT Detalhada":
     st.title("🔬 Análise SWOT Detalhada")
-    if not uploaded_file_sb: st.warning("Upload DOCX na barra lateral.")
+    if not uploaded_file_sb: 
+        st.warning("Upload DOCX na barra lateral.")
+        st.divider()
+        show_capabilities()
     elif not st.session_state.s_gemini: st.info("Aguardando processamento/sugestões.")
     else:
         swot_sugs_page_render=[s_cfg_swot["dados_originais"] for s_id_swot,s_cfg_swot in st.session_state.cfg_sugs.items() if s_cfg_swot["aceito"] and s_cfg_swot["dados_originais"].get("tipo_sugerido")=="lista_swot"]
@@ -547,6 +616,8 @@ elif st.session_state.pg_sel=="Análise Profunda Multi-Agente":
     st.title("🧠 Análise Profunda Multi-Agente")
     if not uploaded_file_sb: 
         st.warning("Upload DOCX na barra lateral.")
+        st.divider()
+        show_capabilities()
     elif not st.session_state.analise_profunda:
         st.info("Aguardando análise profunda...")
     else:
@@ -701,6 +772,7 @@ elif st.session_state.pg_sel=="Análise Profunda Multi-Agente":
             with st.expander("Debug: Análise Profunda Completa", expanded=False):
                 st.json(analise)
 
+# --- 4. Seção de Capacidades/Welcome ---
 if uploaded_file_sb is None and st.session_state.f_name is not None:
     keys_to_clear_on_remove = list(st.session_state.keys())
     preserved_widget_keys_on_remove = [
